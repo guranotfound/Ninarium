@@ -1089,13 +1089,9 @@ if (is_chromeos_ash) {
   }
 }
 
-mojom_with_webui_js_bridge("web_ui_js_bridge_test_bindings") {
+mojom("web_ui_managed_interface_tests_bindings") {
   testonly = true
-  source = "data/web_ui_managed_interface_test.test-mojom"
-
-  webui_controller = "content::TestWebUIJsBridgeUI"
-  webui_controller_header = "//content/browser/webui/test_webui_js_bridge_ui.h"
-  webui_controller_deps = [ "//content/test:test_support" ]
+  sources = [ "data/web_ui_managed_interface_test.test-mojom" ]
 
   webui_module_path = "/content/test/data"
 }
