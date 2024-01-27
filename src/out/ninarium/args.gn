@@ -1,7 +1,8 @@
 # Build arguments go here.
 # See "gn args <out_dir> --list" for available build arguments.
-google_api_key = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
-google_default_client_id = "77185425430.apps.googleusercontent.com"
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
 is_clang = true
 is_component_build = false
 is_debug = false
