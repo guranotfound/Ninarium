@@ -1,0 +1,47 @@
+<html>
+<head>
+    <script>
+        // A function to check the window location
+        function checkLocation() {
+            // Get the current window location
+            var location = window.location.href;
+            // If the location matches the Easter Egg
+            if (location == "chrome://nina") {
+                // Toggle the Easter Egg
+                toggleEasterEgg();
+            }
+        }
+
+        // A function to toggle the Easter Egg
+        function toggleEasterEgg() {
+            // Get the image element
+            var image = document.getElementById('image');
+            // If the image is hidden
+            if (image.style.display == "none") {
+                // Show the image
+                image.style.display = "block";
+            } else {
+                // Hide the image
+                image.style.display = "none";
+            }
+        }
+
+        // Add an event listener for load event
+        window.addEventListener('load', function() {
+            // Check the window location
+            checkLocation();
+        });
+    </script>
+    <style>
+        #image {
+            width: 3556px;
+            height: 2000px;
+            margin: auto;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <img id="image" src="nina.png" alt="Easter Egg">
+</body>
+</html>
