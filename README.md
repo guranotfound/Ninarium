@@ -1,9 +1,9 @@
-<img src=https://imgur.com/prI5vhc>
+![alt text](https://imgur.com/prI5vhc)
 
-#**Ninarium**
+**Ninarium**
 
-##*Chromium-fork build by fan :D*
+*Chromium-fork build by fan :D*
 
-This is simply a chromium-fork build by a Vtuber Fan, just because Vtuber I love (yes, I'm a SIMP):> <img src=https://imgur.com/0npjsgp>
+This is simply a chromium-fork build by a Vtuber Fan, just because Vtuber I love (yes, I'm a SIMP):> ![alt text](https://imgur.com/0npjsgp)
 
 Thanks to @Alex313031 for the Thorium source code!
