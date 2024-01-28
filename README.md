@@ -10,5 +10,5 @@ This is simply a chromium-fork build by a Vtuber Fan, just because Vtuber I love
 Thanks to @Alex313031 for the Thorium source code (https://github.com/Alex313031/thorium)!
 
 
-Subscribe to her if you can (⁠｡⁠•̀⁠ᴗ⁠-⁠)
+Subscribe her Youtube channel if you can  (⁠｡⁠•̀⁠ᴗ⁠-⁠)
 https://youtube.com/@NinaMeowMeowCh
