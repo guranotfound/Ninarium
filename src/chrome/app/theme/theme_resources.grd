@@ -198,7 +198,7 @@
               <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_NAME_22" file="${branding_path_component}/product_logo_name_22.png" />
               <structure type="chrome_scaled_image" name="IDR_PRODUCT_LOGO_NAME_22_WHITE" file="${branding_path_component}/product_logo_name_22_white.png" />
               <structure type="chrome_scaled_image" name="IDR_PRODUCT_BONK" file="chromium/bonk.png" />
-			  <structure type="chrome_scaled_image" name="IDR_PRODUCT_DRUNK" file="chromium/drunk.png" />
+			        <structure type="chrome_scaled_image" name="IDR_PRODUCT_FANART" file="chromium/fanart.png" />
             </else>
           </if> <!-- _is_chrome_for_testing_branded -->
         </else>
