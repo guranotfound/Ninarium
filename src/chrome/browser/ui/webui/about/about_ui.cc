@@ -547,7 +547,7 @@ std::string ChromeURLs(content::BrowserContext* browser_context) {
 
     html += "<li><a href='chrome://theme/IDR_PRODUCT_BONK'>chrome://bonk</a></li>\n";
 
-    html += "<li><a href='chrome://theme/IDR_PRODUCT_DRUNK'>chrome://drunk</a></li>\n";
+    html += "<li><a href='chrome://theme/IDR_PRODUCT_FANART'>chrome://fanart</a></li>\n";
 	
 
     html +=
