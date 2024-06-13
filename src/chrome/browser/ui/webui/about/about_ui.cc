@@ -549,6 +549,8 @@ std::string ChromeURLs(content::BrowserContext* browser_context) {
 
     html += "<li><a href='chrome://theme/IDR_PRODUCT_FANART'>chrome://fanart</a></li>\n";
 
+    html += "<li><a href='chrome://theme/IDR_PRODUCT_MEME'>chrome://meme</a></li>\n";
+
     html +=
         "</ul><a id=\"internals\"><h2>List of chrome://internals "
         "pages</h2></a>\n<ul>\n";

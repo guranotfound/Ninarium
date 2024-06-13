@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors
+// Copyright 2024 The Chromium Authors and Alex313031
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 CANVAS_DIMENSIONS, 16,
+PATH_COLOR_ARGB, 0xFF, 0x87, 0xFF, 0xC5,
 MOVE_TO, 4.13f, 1,
 R_H_LINE_TO, 7.74f,
 R_V_LINE_TO, 1.56f,
