@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-CANVAS_DIMENSIONS, 44.45000076293945,
+CANVAS_DIMENSIONS, 44,
 FILL_RULE_NONZERO,
 MOVE_TO, 23.02f, 38.89f,
 R_H_LINE_TO, 0.26f,
