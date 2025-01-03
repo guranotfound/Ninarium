@@ -1,0 +1,139 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sat, 28 Dec 2019 10:23:04 +0100
+Subject: Show site settings for cookies, javascript and ads
+
+Avoid displaying info about intrusive ads
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../site_settings/SingleWebsiteSettings.java  | 51 ++++++++++++-------
+ .../browser_ui/site_settings/Website.java     | 14 ++++-
+ .../bromite_content_settings/javascript.inc   |  4 ++
+ 3 files changed, 50 insertions(+), 19 deletions(-)
+ create mode 100644 components/content_settings/core/browser/bromite_content_settings/javascript.inc
+
+diff --git a/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/SingleWebsiteSettings.java b/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/SingleWebsiteSettings.java
+--- a/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/SingleWebsiteSettings.java
++++ b/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/SingleWebsiteSettings.java
+@@ -567,6 +567,8 @@ public class SingleWebsiteSettings extends BaseSiteSettingsFragment
+                 setUpSoundPreference(preference);
+             } else if (type == ContentSettingsType.JAVASCRIPT) {
+                 setUpJavascriptPreference(preference);
++            } else if (type == ContentSettingsType.COOKIES) {
++                setUpCookiesPreference(preference);
+             } else if (type == ContentSettingsType.GEOLOCATION) {
+                 setUpLocationPreference(preference);
+             } else if (type == ContentSettingsType.NOTIFICATIONS) {
+@@ -1018,17 +1020,8 @@ public class SingleWebsiteSettings extends BaseSiteSettingsFragment
+     private void setUpAdsInformationalBanner() {
+         // Add the informational banner which shows at the top of the UI if ad blocking is
+         // activated on this site.
+-        boolean adBlockingActivated =
+-                SiteSettingsCategory.adsCategoryEnabled()
+-                        && WebsitePreferenceBridge.getAdBlockingActivated(
+-                                getSiteSettingsDelegate().getBrowserContextHandle(),
+-                                mSite.getAddress().getOrigin())
+-                        && findPreference(getPreferenceKey(ContentSettingsType.ADS)) != null;
+-
+-        if (!adBlockingActivated) {
+             removePreferenceSafely(PREF_INTRUSIVE_ADS_INFO);
+             removePreferenceSafely(PREF_INTRUSIVE_ADS_INFO_DIVIDER);
+-        }
+     }
+ 
+     private SiteSettingsCategory getWarningCategory() {
+@@ -1230,12 +1223,13 @@ public class SingleWebsiteSettings extends BaseSiteSettingsFragment
+         @Nullable
+         Integer currentValue =
+                 mSite.getContentSetting(browserContextHandle, ContentSettingsType.JAVASCRIPT);
+-        // If Javascript is blocked by default, then always show a Javascript permission.
+-        // To do this, set it to the default value (blocked).
+-        if ((currentValue == null)
+-                && !WebsitePreferenceBridge.isCategoryEnabled(
+-                        browserContextHandle, ContentSettingsType.JAVASCRIPT)) {
+-            currentValue = ContentSettingValues.BLOCK;
++        // Always show the Javascript permission
++        if (currentValue == null) {
++            currentValue =
++                WebsitePreferenceBridge.isCategoryEnabled(
++                    browserContextHandle, ContentSettingsType.JAVASCRIPT)
++                        ? ContentSettingValues.ALLOW
++                        : ContentSettingValues.BLOCK;
+         }
+         // Not possible to embargo JAVASCRIPT.
+         setupContentSettingsPreference(
+@@ -1245,6 +1239,29 @@ public class SingleWebsiteSettings extends BaseSiteSettingsFragment
+                 isOneTime(ContentSettingsType.JAVASCRIPT));
+     }
+ 
++    private void setUpCookiesPreference(Preference preference) {
++        BrowserContextHandle browserContextHandle =
++                getSiteSettingsDelegate().getBrowserContextHandle();
++        @ContentSettingValues
++        @Nullable
++        Integer currentValue =
++                mSite.getContentSetting(browserContextHandle, ContentSettingsType.COOKIES);
++        // Always show the cookies permission
++        if (currentValue == null || currentValue == ContentSettingValues.DEFAULT) {
++            currentValue =
++                WebsitePreferenceBridge.isCategoryEnabled(
++                    browserContextHandle, ContentSettingsType.COOKIES)
++                        ? ContentSettingValues.ALLOW
++                        : ContentSettingValues.BLOCK;
++        }
++        // Not possible to embargo COOKIES.
++        setupContentSettingsPreference(
++                preference,
++                currentValue,
++                /* isEmbargoed= */ false,
++                isOneTime(ContentSettingsType.COOKIES));
++     }
++
+     /**
+      * Updates the ads list preference based on whether the site is a candidate for blocking. This
+      * has some custom behavior.
+@@ -1263,9 +1280,7 @@ public class SingleWebsiteSettings extends BaseSiteSettingsFragment
+         }
+         // If the ad blocker is activated, then this site will have ads blocked unless there is an
+         // explicit permission disallowing the blocking.
+-        boolean activated =
+-                WebsitePreferenceBridge.getAdBlockingActivated(
+-                        browserContextHandle, mSite.getAddress().getOrigin());
++        boolean activated = true;
+         @ContentSettingValues
+         @Nullable
+         Integer permission = mSite.getContentSetting(browserContextHandle, ContentSettingsType.ADS);
+diff --git a/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/Website.java b/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/Website.java
+--- a/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/Website.java
++++ b/components/browser_ui/site_settings/android/java/src/org/chromium/components/browser_ui/site_settings/Website.java
+@@ -281,7 +281,19 @@ public final class Website implements WebsiteEntry {
+                         new ContentSettingException(
+                                 ContentSettingsType.ADS,
+                                 getAddress().getOrigin(),
+-                                ContentSettingValues.BLOCK,
++                                value,
++                                ProviderType.NONE,
++                                /* isEmbargoed= */ false);
++                setContentSettingException(type, exception);
++            }
++        } else if (type == ContentSettingsType.COOKIES) {
++            // It is possible to set the permission without having an existing exception
++            if (exception == null) {
++                exception =
++                        new ContentSettingException(
++                                ContentSettingsType.COOKIES,
++                                getAddress().getOrigin(),
++                                value,
+                                 ProviderType.NONE,
+                                 /* isEmbargoed= */ false);
+                 setContentSettingException(type, exception);
+diff --git a/components/content_settings/core/browser/bromite_content_settings/javascript.inc b/components/content_settings/core/browser/bromite_content_settings/javascript.inc
+new file mode 100644
+--- /dev/null
++++ b/components/content_settings/core/browser/bromite_content_settings/javascript.inc
+@@ -0,0 +1,4 @@
++  content_settings::WebsiteSettingsRegistry::GetInstance()
++    ->GetMutable(ContentSettingsType::JAVASCRIPT)
++    ->set_show_into_info_page()
++    .set_is_renderer_content_setting();
+--

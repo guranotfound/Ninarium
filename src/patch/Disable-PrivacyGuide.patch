@@ -1,0 +1,48 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sun, 31 Jul 2022 22:13:11 +0200
+Subject: Disable PrivacyGuide
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ chrome/android/java/res/xml/privacy_preferences.xml         | 1 +
+ chrome/browser/ui/webui/settings/settings_ui.cc             | 3 +--
+ .../common/chrome_features_cc/Disable-PrivacyGuide.inc      | 6 ++++++
+ 3 files changed, 8 insertions(+), 2 deletions(-)
+ create mode 100644 cromite_flags/chrome/common/chrome_features_cc/Disable-PrivacyGuide.inc
+
+diff --git a/chrome/android/java/res/xml/privacy_preferences.xml b/chrome/android/java/res/xml/privacy_preferences.xml
+--- a/chrome/android/java/res/xml/privacy_preferences.xml
++++ b/chrome/android/java/res/xml/privacy_preferences.xml
+@@ -27,6 +27,7 @@ found in the LICENSE file.
+         app:isPreferenceVisible="false" />
+     <Preference
+         android:key="privacy_guide"
++        app:isPreferenceVisible="false"
+         android:title="@string/privacy_guide_pref_title"
+         android:summary="@string/privacy_guide_pref_summary"
+         android:fragment="org.chromium.chrome.browser.privacy_guide.PrivacyGuideFragment" />
+diff --git a/chrome/browser/ui/webui/settings/settings_ui.cc b/chrome/browser/ui/webui/settings/settings_ui.cc
+--- a/chrome/browser/ui/webui/settings/settings_ui.cc
++++ b/chrome/browser/ui/webui/settings/settings_ui.cc
+@@ -363,8 +363,7 @@ SettingsUI::SettingsUI(content::WebUI* web_ui)
+ #endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
+ 
+   bool show_privacy_guide =
+-      base::FeatureList::IsEnabled(features::kPrivacyGuideForceAvailable) ||
+-      (!chrome::ShouldDisplayManagedUi(profile) && !profile->IsChild());
++      false;
+   html_source->AddBoolean("showPrivacyGuide", show_privacy_guide);
+ 
+   html_source->AddBoolean(
+diff --git a/cromite_flags/chrome/common/chrome_features_cc/Disable-PrivacyGuide.inc b/cromite_flags/chrome/common/chrome_features_cc/Disable-PrivacyGuide.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/common/chrome_features_cc/Disable-PrivacyGuide.inc
+@@ -0,0 +1,6 @@
++#if BUILDFLAG(IS_ANDROID)
++
++SET_CROMITE_FEATURE_DISABLED(kPrivacyGuideAndroid3);
++SET_CROMITE_FEATURE_DISABLED(kPrivacyGuidePreloadAndroid);
++
++#endif
+--

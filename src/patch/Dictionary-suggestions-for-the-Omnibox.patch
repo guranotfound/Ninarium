@@ -1,0 +1,97 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sat, 19 Mar 2022 10:53:24 +0100
+Subject: Dictionary suggestions for the Omnibox
+
+Revert "Disable Dictionary suggestions for the Omnibox"
+
+This reverts commit d3ec2b2d25066ec089f8351a44b919ded4270e83.
+
+Original License: BSD-3-Clause - https://spdx.org/licenses/BSD-3-Clause.html
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ chrome/android/java/res/layout/url_bar.xml    |  1 +
+ .../browser/omnibox/LocationBarMediator.java  | 13 +++++++++--
+ .../chrome/browser/omnibox/UrlBar.java        | 23 +++++++++++++++++++
+ 3 files changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/chrome/android/java/res/layout/url_bar.xml b/chrome/android/java/res/layout/url_bar.xml
+--- a/chrome/android/java/res/layout/url_bar.xml
++++ b/chrome/android/java/res/layout/url_bar.xml
+@@ -15,5 +15,6 @@ found in the LICENSE file.
+     android:singleLine="true"
+     android:imeOptions="actionGo|flagNoExtractUi|flagNoFullscreen"
+     android:textAppearance="@style/TextAppearance.SearchBoxText"
++    android:inputType="textUri"
+     android:hint="@string/omnibox_empty_hint"
+     android:importantForAutofill="no" />
+diff --git a/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/LocationBarMediator.java b/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/LocationBarMediator.java
+--- a/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/LocationBarMediator.java
++++ b/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/LocationBarMediator.java
+@@ -288,8 +288,17 @@ class LocationBarMediator
+             if (mNativeInitialized) RecordUserAction.record("FocusLocation");
+             boolean shouldRetainOmniboxOnFocus = OmniboxFeatures.shouldRetainOmniboxOnFocus();
+             if (!mUrlFocusedWithPastedText && !shouldRetainOmniboxOnFocus) {
+-                setUrlBarText(
+-                        UrlBarData.EMPTY, UrlBar.ScrollType.NO_SCROLL, SelectionState.SELECT_END);
++                UrlBarData data = mLocationBarDataProvider.getUrlBarData();
++                @SelectionState int selectionState = SelectionState.SELECT_ALL;
++                GURL url = mLocationBarDataProvider.getUrlBarData().url;
++                if (url != null && mTemplateUrlServiceSupplier.hasValue()) {
++                    String searchParams =
++                        mTemplateUrlServiceSupplier.get().getSearchQueryForUrl(url);
++                    if (searchParams != null && !searchParams.isEmpty()) {
++                        data = UrlBarData.forUrlAndText(data.url, data.displayText, searchParams);
++                    }
++                }
++                setUrlBarText(data, UrlBar.ScrollType.NO_SCROLL, selectionState);
+             } else if (shouldRetainOmniboxOnFocus) {
+                 mUrlCoordinator.setSelectAllOnFocus(true);
+             }
+diff --git a/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/UrlBar.java b/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/UrlBar.java
+--- a/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/UrlBar.java
++++ b/chrome/browser/ui/android/omnibox/java/src/org/chromium/chrome/browser/omnibox/UrlBar.java
+@@ -9,6 +9,7 @@ import android.graphics.Canvas;
+ import android.graphics.Paint;
+ import android.graphics.Rect;
+ import android.os.Build;
++import android.os.Handler;
+ import android.os.SystemClock;
+ import android.text.Editable;
+ import android.text.InputType;
+@@ -114,6 +115,7 @@ public class UrlBar extends AutocompleteEditText {
+     private boolean mAllowFocus = true;
+     private boolean mTypingStartedEventSent;
+ 
++    private boolean mPendingSelectAll;
+     private boolean mPendingScroll;
+ 
+     // Captures the current intended text scroll type.
+@@ -355,6 +357,27 @@ public class UrlBar extends AutocompleteEditText {
+             mPendingScroll = false;
+         }
+         fixupTextDirection();
++        if (mPendingSelectAll) {
++            UrlBar sender = this;
++            new Handler().post(new Runnable() {
++                @Override
++                public void run() {
++                    sender.selectAll();
++                    mPendingSelectAll = false;
++                }
++            });
++        }
++    }
++
++    @Override
++    public void selectAll() {
++        mPendingSelectAll = true;
++        super.selectAll();
++    }
++
++    @Override
++    public int getAutofillType() {
++        return AUTOFILL_TYPE_NONE;
+     }
+ 
+     @Override
+--

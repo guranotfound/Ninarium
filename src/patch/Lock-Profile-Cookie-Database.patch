@@ -1,0 +1,21 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Mon, 17 Jul 2023 15:24:54 +0000
+Subject: Lock Profile Cookie Database
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../browser_features_cc/Lock-Profile-Cookie-Database.inc     | 5 +++++
+ 1 file changed, 5 insertions(+)
+ create mode 100644 cromite_flags/chrome/browser/browser_features_cc/Lock-Profile-Cookie-Database.inc
+
+diff --git a/cromite_flags/chrome/browser/browser_features_cc/Lock-Profile-Cookie-Database.inc b/cromite_flags/chrome/browser/browser_features_cc/Lock-Profile-Cookie-Database.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/browser_features_cc/Lock-Profile-Cookie-Database.inc
+@@ -0,0 +1,5 @@
++#if BUILDFLAG(IS_WIN)
++
++SET_CROMITE_FEATURE_ENABLED(kLockProfileCookieDatabase);
++
++#endif
+--

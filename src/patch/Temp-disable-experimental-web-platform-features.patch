@@ -1,0 +1,27 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Mon, 2 Sep 2024 07:05:25 +0000
+Subject: Temp disable experimental-web-platform-features
+
+---
+ chrome/browser/about_flags.cc | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/chrome/browser/about_flags.cc b/chrome/browser/about_flags.cc
+--- a/chrome/browser/about_flags.cc
++++ b/chrome/browser/about_flags.cc
+@@ -4449,10 +4449,10 @@ const FeatureEntry kFeatureEntries[] = {
+     {"enable-fontations-backend", flag_descriptions::kFontationsFontBackendName,
+      flag_descriptions::kFontationsFontBackendDescription, kOsAll,
+      FEATURE_VALUE_TYPE(blink::features::kFontationsFontBackend)},
+-    {"enable-experimental-web-platform-features",
+-     flag_descriptions::kExperimentalWebPlatformFeaturesName,
+-     flag_descriptions::kExperimentalWebPlatformFeaturesDescription, kOsAll,
+-     SINGLE_VALUE_TYPE(switches::kEnableExperimentalWebPlatformFeatures)},
++    // {"enable-experimental-web-platform-features",
++    //  flag_descriptions::kExperimentalWebPlatformFeaturesName,
++    //  flag_descriptions::kExperimentalWebPlatformFeaturesDescription, kOsAll,
++    //  SINGLE_VALUE_TYPE(switches::kEnableExperimentalWebPlatformFeatures)},
+     {"top-chrome-touch-ui", flag_descriptions::kTopChromeTouchUiName,
+      flag_descriptions::kTopChromeTouchUiDescription, kOsDesktop,
+      MULTI_VALUE_TYPE(kTopChromeTouchUiChoices)},
+--

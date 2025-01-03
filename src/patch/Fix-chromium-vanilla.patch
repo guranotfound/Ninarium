@@ -1,0 +1,34 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Fri, 2 Aug 2024 10:22:09 +0000
+Subject: Fix chromium vanilla
+
+Fixes some crashes in start-up (only chromium vanilla)
+---
+ .../chromium/chrome/browser/firstrun/FirstRunFlowSequencer.java | 2 ++
+ .../components/safe_browsing/SafeBrowsingApiBridge.java         | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/firstrun/FirstRunFlowSequencer.java b/chrome/android/java/src/org/chromium/chrome/browser/firstrun/FirstRunFlowSequencer.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/firstrun/FirstRunFlowSequencer.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/firstrun/FirstRunFlowSequencer.java
+@@ -206,6 +206,8 @@ public abstract class FirstRunFlowSequencer {
+      * @param freProperties Resulting FRE properties bundle.
+      */
+     public void updateFirstRunProperties(Bundle freProperties) {
++        // fix chromium vanilla startup
++        if (freProperties == null) return;
+         boolean isHistorySyncEnabled =
+                 ChromeFeatureList.isEnabled(
+                         ChromeFeatureList.REPLACE_SYNC_PROMOS_WITH_SIGN_IN_PROMOS);
+diff --git a/components/safe_browsing/android/java/src/org/chromium/components/safe_browsing/SafeBrowsingApiBridge.java b/components/safe_browsing/android/java/src/org/chromium/components/safe_browsing/SafeBrowsingApiBridge.java
+--- a/components/safe_browsing/android/java/src/org/chromium/components/safe_browsing/SafeBrowsingApiBridge.java
++++ b/components/safe_browsing/android/java/src/org/chromium/components/safe_browsing/SafeBrowsingApiBridge.java
+@@ -238,6 +238,7 @@ public final class SafeBrowsingApiBridge {
+     @CalledByNative
+     private static void startUriLookupBySafeBrowsingApi(
+             long callbackId, String uri, int[] threatTypes, int protocol) {
++        if ((true)) return; // (unused code in cromite) fix chromium vanilla crash
+         synchronized (sSafeBrowsingApiHandlerLock) {
+             if (sSafeBrowsingApiHandler == null) {
+                 // sSafeBrowsingApiHandler can only be null in tests.
+--

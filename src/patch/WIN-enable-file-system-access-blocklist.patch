@@ -1,0 +1,21 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Tue, 14 Feb 2023 16:32:30 +0000
+Subject: WIN enable file system access blocklist
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ content/browser/file_system_access/features.cc | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/content/browser/file_system_access/features.cc b/content/browser/file_system_access/features.cc
+--- a/content/browser/file_system_access/features.cc
++++ b/content/browser/file_system_access/features.cc
+@@ -24,6 +24,7 @@ BASE_FEATURE(kFileSystemAccessBFCache,
+ BASE_FEATURE(kFileSystemAccessDragAndDropCheckBlocklist,
+              "FileSystemAccessDragAndDropCheckBlocklist",
+              base::FEATURE_ENABLED_BY_DEFAULT);
++SET_CROMITE_FEATURE_ENABLED(kFileSystemAccessDragAndDropCheckBlocklist);
+ 
+ // TODO(crbug.com/40896420): Remove this flag eventually.
+ // TODO(b/354661640): Temporarily disable this flag while investigating CrOS
+--

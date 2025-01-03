@@ -1,0 +1,23 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sun, 6 Mar 2022 11:29:27 +0100
+Subject: Revert Permit blocking of view-source
+
+This reverts commit e72fc9b64116bf259e516096fcc60b58ae8ae1b3.
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../policy/content/policy_blocklist_navigation_throttle.cc       | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/components/policy/content/policy_blocklist_navigation_throttle.cc b/components/policy/content/policy_blocklist_navigation_throttle.cc
+--- a/components/policy/content/policy_blocklist_navigation_throttle.cc
++++ b/components/policy/content/policy_blocklist_navigation_throttle.cc
+@@ -63,6 +63,7 @@ PolicyBlocklistNavigationThrottle::~PolicyBlocklistNavigationThrottle() {
+ }
+ 
+ bool PolicyBlocklistNavigationThrottle::IsBlockedViewSourceNavigation() {
++  if ((true)) return false;
+   content::NavigationEntry* nav_entry =
+       navigation_handle()->GetNavigationEntry();
+   if (!nav_entry || !nav_entry->IsViewSourceMode()) {
+--

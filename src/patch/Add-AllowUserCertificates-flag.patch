@@ -1,0 +1,133 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Mon, 26 Apr 2021 13:28:24 +0000
+Subject: Add AllowUserCertificates flag
+
+Original License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../chromium/chrome/browser/app/ChromeActivity.java |  3 +++
+ chrome/browser/flags/android/chrome_feature_list.cc |  1 +
+ .../chrome/browser/flags/ChromeFeatureList.java     |  4 ++++
+ .../Add-AllowUserCertificates-flag.inc              | 13 +++++++++++++
+ .../Add-AllowUserCertificates-flag.inc              |  3 +++
+ .../Add-AllowUserCertificates-flag.inc              |  1 +
+ net/android/java/src/org/chromium/net/X509Util.java |  5 +++++
+ 7 files changed, 30 insertions(+)
+ create mode 100644 cromite_flags/chrome/browser/about_flags_cc/Add-AllowUserCertificates-flag.inc
+ create mode 100644 cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Add-AllowUserCertificates-flag.inc
+ create mode 100644 cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Add-AllowUserCertificates-flag.inc
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/app/ChromeActivity.java b/chrome/android/java/src/org/chromium/chrome/browser/app/ChromeActivity.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/app/ChromeActivity.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/app/ChromeActivity.java
+@@ -227,6 +227,7 @@ import org.chromium.content_public.browser.ScreenOrientationProvider;
+ import org.chromium.content_public.browser.SelectionPopupController;
+ import org.chromium.content_public.browser.WebContents;
+ import org.chromium.content_public.common.ContentSwitches;
++import org.chromium.net.X509Util;
+ import org.chromium.printing.PrintManagerDelegateImpl;
+ import org.chromium.printing.PrintingController;
+ import org.chromium.printing.PrintingControllerImpl;
+@@ -1044,6 +1045,8 @@ public abstract class ChromeActivity<C extends ChromeActivityComponent>
+ 
+         ChromeActivitySessionTracker.getInstance().onStartWithNative(getProfileProviderSupplier());
+         ChromeCachedFlags.getInstance().cacheNativeFlags();
++        X509Util.AllowUserCertificates = ChromeFeatureList.isEnabled(
++                                            ChromeFeatureList.ALLOW_USER_CERTIFICATES);
+ 
+         // postDeferredStartupIfNeeded() is called in TabModelSelectorTabObsever#onLoadStopped(),
+         // #onPageLoadFinished() and #onCrash(). If we are not actively loading a tab (e.g.
+diff --git a/chrome/browser/flags/android/chrome_feature_list.cc b/chrome/browser/flags/android/chrome_feature_list.cc
+--- a/chrome/browser/flags/android/chrome_feature_list.cc
++++ b/chrome/browser/flags/android/chrome_feature_list.cc
+@@ -161,6 +161,7 @@ const base::Feature* const kFeaturesExposedToJava[] = {
+     &feed::kFeedPerformanceStudy,
+     &feed::kFeedShowSignInCommand,
+     &feed::kFeedSignedOutViewDemotion,
++    &kAllowUserCertificates,
+     &feed::kInterestFeedV2,
+     &feed::kInterestFeedV2Hearts,
+     &feed::kWebFeedAwareness,
+diff --git a/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
+--- a/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
++++ b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
+@@ -161,6 +161,7 @@ public abstract class ChromeFeatureList {
+     /* Alphabetical: */
+     public static final String ACCOUNT_REAUTHENTICATION_RECENT_TIME_WINDOW =
+             "AccountReauthenticationRecentTimeWindow";
++    public static final String ALLOW_USER_CERTIFICATES = "AllowUserCertificates";
+     public static final String ADAPTIVE_BUTTON_IN_TOP_TOOLBAR_PAGE_SUMMARY =
+             "AdaptiveButtonInTopToolbarPageSummary";
+     public static final String ADAPTIVE_BUTTON_IN_TOP_TOOLBAR_CUSTOMIZATION_V2 =
+@@ -609,6 +610,8 @@ public abstract class ChromeFeatureList {
+     public static final CachedFlag sAndroidTabDeclutterDedupeTabIdsKillSwitch =
+             newCachedFlag(ANDROID_TAB_DECLUTTER_DEDUPE_TAB_IDS_KILL_SWITCH, true);
+     public static final CachedFlag sAppSpecificHistory = newCachedFlag(APP_SPECIFIC_HISTORY, true);
++    public static final CachedFlag sAllowUserCertificates =
++            newCachedFlag(ALLOW_USER_CERTIFICATES, false);
+     public static final CachedFlag sAsyncNotificationManager =
+             newCachedFlag(ASYNC_NOTIFICATION_MANAGER, false);
+     public static final CachedFlag sBackGestureActivityTabProvider =
+@@ -780,6 +783,7 @@ public abstract class ChromeFeatureList {
+     public static final List<CachedFlag> sFlagsCachedFullBrowserChromium =
+             List.of(
+                     sAccountReauthenticationRecentTimeWindow,
++                    sAllowUserCertificates,
+                     sAndroidAppIntegration,
+                     sAndroidAppIntegrationWithFavicon,
+                     sAndroidBottomToolbar,
+diff --git a/cromite_flags/chrome/browser/about_flags_cc/Add-AllowUserCertificates-flag.inc b/cromite_flags/chrome/browser/about_flags_cc/Add-AllowUserCertificates-flag.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/about_flags_cc/Add-AllowUserCertificates-flag.inc
+@@ -0,0 +1,13 @@
++#ifdef FLAG_SECTION
++
++#if BUILDFLAG(IS_ANDROID)
++
++    {"allow-user-certificates",
++     "Allow user certificates",
++     "Allow user CA certificates during "
++     "validation of the certificate chain", kOsAndroid,
++     FEATURE_VALUE_TYPE(chrome::android::kAllowUserCertificates)},
++
++#endif
++
++#endif
+diff --git a/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Add-AllowUserCertificates-flag.inc b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Add-AllowUserCertificates-flag.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Add-AllowUserCertificates-flag.inc
+@@ -0,0 +1,3 @@
++CROMITE_FEATURE(kAllowUserCertificates,
++                "AllowUserCertificates",
++                base::FEATURE_DISABLED_BY_DEFAULT);
+diff --git a/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Add-AllowUserCertificates-flag.inc b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Add-AllowUserCertificates-flag.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Add-AllowUserCertificates-flag.inc
+@@ -0,0 +1 @@
++BASE_DECLARE_FEATURE(kAllowUserCertificates);
+diff --git a/net/android/java/src/org/chromium/net/X509Util.java b/net/android/java/src/org/chromium/net/X509Util.java
+--- a/net/android/java/src/org/chromium/net/X509Util.java
++++ b/net/android/java/src/org/chromium/net/X509Util.java
+@@ -525,6 +525,8 @@ public class X509Util {
+         return userRootBytes.toArray(new byte[0][]);
+     }
+ 
++    public static boolean AllowUserCertificates = false;
++
+     public static AndroidCertVerifyResult verifyServerCertificates(
+             byte[][] certChain, String authType, String host)
+             throws KeyStoreException, NoSuchAlgorithmException {
+@@ -613,6 +615,9 @@ public class X509Util {
+                 isIssuedByKnownRoot = isKnownRoot(root);
+             }
+ 
++            if (AllowUserCertificates == false && isIssuedByKnownRoot == false)
++                return new AndroidCertVerifyResult(CertVerifyStatusAndroid.NO_TRUSTED_ROOT);
++
+             return new AndroidCertVerifyResult(
+                     CertVerifyStatusAndroid.OK, isIssuedByKnownRoot, verifiedChain);
+         }
+--

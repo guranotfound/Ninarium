@@ -1,0 +1,27 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Tue, 27 Feb 2024 08:53:37 +0000
+Subject: Enable percent based scrolling on Windows
+
+mousewheel and keyboard scrolls will scroll by a
+percentage of the scroller size and the default scroll
+animation is replaced with Impulse-style scroll animations
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ ui/base/ui_base_features.cc | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/ui/base/ui_base_features.cc b/ui/base/ui_base_features.cc
+--- a/ui/base/ui_base_features.cc
++++ b/ui/base/ui_base_features.cc
+@@ -202,6 +202,9 @@ static_assert(!BUILDFLAG(IS_MAC) ||
+ BASE_FEATURE(kWindowsScrollingPersonality,
+              "WindowsScrollingPersonality",
+              kWindowsScrollingPersonalityDefaultStatus);
++#if BUILDFLAG(IS_WIN)
++SET_CROMITE_FEATURE_ENABLED(kWindowsScrollingPersonality);
++#endif
+ 
+ bool IsPercentBasedScrollingEnabled() {
+   return base::FeatureList::IsEnabled(features::kWindowsScrollingPersonality);
+--

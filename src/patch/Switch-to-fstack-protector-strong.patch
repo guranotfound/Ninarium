@@ -1,0 +1,31 @@
+From: Daniel Micay <danielmicay@gmail.com>
+Date: Wed, 26 Dec 2018 10:20:24 -0500
+Subject: Switch to -fstack-protector-strong
+
+This compiler option is already used for ChromeOS, but not yet on other
+platforms because there is push back against enabling an option resulting in
+~1-2% lower performance and ~2-3% larger binaries.
+
+The size increase on Android is something they care a lot about since some
+devices have very little storage space. That also means ever so slightly
+higher memory/cache usage but not by the full 2-3%.
+
+Original License: MIT - https://spdx.org/licenses/MIT.html
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ build/config/compiler/BUILD.gn | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -371,7 +371,7 @@ config("compiler") {
+       } else if ((is_posix && !is_chromeos && !is_nacl) || is_fuchsia) {
+         if (current_os != "aix") {
+           # Not available on aix.
+-          cflags += [ "-fstack-protector" ]
++          cflags += [ "-fstack-protector-strong" ]
+         }
+       }
+     }
+--

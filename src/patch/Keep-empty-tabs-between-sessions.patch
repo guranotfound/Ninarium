@@ -1,0 +1,42 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Wed, 27 Oct 2021 10:57:09 +0000
+Subject: Keep empty tabs between sessions
+
+Original License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../browser/tabmodel/TabPersistentStore.java      | 15 ---------------
+ 1 file changed, 15 deletions(-)
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabPersistentStore.java b/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabPersistentStore.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabPersistentStore.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabPersistentStore.java
+@@ -1216,27 +1216,12 @@ public class TabPersistentStore {
+                 continue;
+             }
+ 
+-            if (i == activeIndex) {
+-                // If any non-active NTPs have been skipped, the serialized tab model index
+-                // needs to be adjusted.
+-                modelInfo.index = modelInfo.ids.size();
+-            } else if (shouldSkipTab(tab)) {
+-                continue;
+-            }
+             modelInfo.ids.add(tab.getId());
+             modelInfo.urls.add(tab.getUrl().getSpec());
+         }
+         return modelInfo;
+     }
+ 
+-    private static boolean shouldSkipTab(@NonNull Tab tab) {
+-        boolean isNtp = tab.isNativePage() && UrlUtilities.isNtpUrl(tab.getUrl());
+-        if (!isNtp) return false;
+-
+-        // Only skip NTP tabs that are not in a tab group.
+-        return tab.getTabGroupId() == null;
+-    }
+-
+     private void saveListToFile(TabModelSelectorMetadata listData) {
+         if (Objects.equals(mLastSavedMetadata, listData)) return;
+         // Save the index file containing the list of tabs to restore.
+--

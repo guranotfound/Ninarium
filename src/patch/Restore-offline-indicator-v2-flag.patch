@@ -1,0 +1,170 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sat, 4 Dec 2021 11:41:31 +0100
+Subject: Restore offline-indicator-v2 flag
+
+Reverts acc8b6f4542703211e5f3c5181914fd3374c9e84
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../indicator/OfflineDetector.java            | 40 ++++++++++++++++++-
+ .../tabbed_mode/TabbedRootUiCoordinator.java  |  8 +++-
+ .../flags/android/chrome_feature_list.cc      |  1 +
+ .../browser/flags/ChromeFeatureList.java      |  1 +
+ .../Restore-offline-indicator-v2-flag.inc     | 12 ++++++
+ .../Restore-offline-indicator-v2-flag.inc     |  3 ++
+ .../Restore-offline-indicator-v2-flag.inc     |  1 +
+ 7 files changed, 63 insertions(+), 3 deletions(-)
+ create mode 100644 cromite_flags/chrome/browser/about_flags_cc/Restore-offline-indicator-v2-flag.inc
+ create mode 100644 cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Restore-offline-indicator-v2-flag.inc
+ create mode 100644 cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Restore-offline-indicator-v2-flag.inc
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java b/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java
+@@ -8,6 +8,7 @@ import android.content.Context;
+ import android.os.Handler;
+ import android.os.SystemClock;
+ import android.provider.Settings;
++import android.text.TextUtils;
+ 
+ import androidx.annotation.VisibleForTesting;
+ 
+@@ -17,8 +18,12 @@ import org.chromium.base.Callback;
+ import org.chromium.base.Log;
+ import org.chromium.base.supplier.Supplier;
+ import org.chromium.base.version_info.VersionInfo;
++import org.chromium.chrome.browser.flags.ChromeFeatureList;
+ import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector;
+ import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector.ConnectionState;
++import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector;
++import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector.ConnectionState;
++import org.chromium.components.variations.VariationsAssociatedData;
+ 
+ /**
+  * Class that detects if the network is offline. Waits for the network to stablize before notifying
+@@ -127,8 +132,9 @@ class OfflineDetector
+         mIsForegroundCallback = isForegroundCallback;
+         mContext = context;
+         mHandler = new Handler();
+-        mStatusIndicatorWaitOnSwitchOnlineToOfflineDurationMs =
+-                STATUS_INDICATOR_WAIT_ON_SWITCH_ONLINE_TO_OFFLINE_DEFAULT_DURATION_MS;
++        mStatusIndicatorWaitOnSwitchOnlineToOfflineDurationMs = getIntParamValueOrDefault(
++                "STATUS_INDICATOR_WAIT_ON_SWITCH_ONLINE_TO_OFFLINE_DEFAULT_DURATION_MS",
++                STATUS_INDICATOR_WAIT_ON_SWITCH_ONLINE_TO_OFFLINE_DEFAULT_DURATION_MS);
+ 
+         mUpdateOfflineStatusIndicatorDelayedRunnable =
+                 () -> {
+@@ -384,4 +390,34 @@ class OfflineDetector
+                                 timeNeededAfterConnectionChangeFromOnlineToOffline),
+                         timeNeededAfterConnectionChangeFromAirplaneToOffline));
+     }
++
++    /**
++     * Returns the value for a Finch parameter, or the default value if no parameter
++     * exists in the current configuration.
++     * @param paramName The name of the Finch parameter (or command-line switch) to get a value
++     *                  for.
++     * @param defaultValue The default value to return when there's no param or switch.
++     * @return The value -- either the param or the default.
++     */
++    private static long getIntParamValueOrDefault(String paramName, long defaultValue) {
++        String value;
++
++        // May throw exception in tests.
++        try {
++            value = VariationsAssociatedData.getVariationParamValue(
++                    ChromeFeatureList.OFFLINE_INDICATOR_V2, paramName);
++        } catch (java.lang.UnsupportedOperationException e) {
++            return defaultValue;
++        }
++
++        if (!TextUtils.isEmpty(value)) {
++            try {
++                return Integer.parseInt(value);
++            } catch (NumberFormatException e) {
++                return defaultValue;
++            }
++        }
++
++        return defaultValue;
++    }
+ }
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java b/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java
+@@ -1104,7 +1104,8 @@ public class TabbedRootUiCoordinator extends RootUiCoordinator {
+     private void initStatusIndicatorCoordinator(LayoutManagerImpl layoutManager) {
+         // TODO(crbug.com/40112282): Disable on tablets for now as we need to do one or two extra
+         // things for tablets.
+-        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(mActivity)) {
++        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(mActivity)
++                || (!ChromeFeatureList.isEnabled(ChromeFeatureList.OFFLINE_INDICATOR_V2))) {
+             return;
+         }
+ 
+@@ -1137,6 +1138,11 @@ public class TabbedRootUiCoordinator extends RootUiCoordinator {
+                     hubManager.setStatusIndicatorHeight(mStatusIndicatorHeight);
+                 });
+ 
++        // Don't initialize the offline indicator controller if the feature is disabled.
++        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.OFFLINE_INDICATOR_V2)) {
++            return;
++        }
++
+         ObservableSupplierImpl<Boolean> isUrlBarFocusedSupplier = new ObservableSupplierImpl<>();
+         isUrlBarFocusedSupplier.set(mToolbarManager.isUrlBarFocused());
+         mUrlFocusChangeListener =
+diff --git a/chrome/browser/flags/android/chrome_feature_list.cc b/chrome/browser/flags/android/chrome_feature_list.cc
+--- a/chrome/browser/flags/android/chrome_feature_list.cc
++++ b/chrome/browser/flags/android/chrome_feature_list.cc
+@@ -281,6 +281,7 @@ const base::Feature* const kFeaturesExposedToJava[] = {
+     &kNotificationPermissionVariant,
+     &kNotificationPermissionBottomSheet,
+     &kNotificationTrampoline,
++    &kOfflineIndicatorV2,
+     &kTinkerTankBottomSheet,
+     &kPageAnnotationsService,
+     &kPreconnectOnTabCreation,
+diff --git a/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
+--- a/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
++++ b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
+@@ -402,6 +402,7 @@ public abstract class ChromeFeatureList {
+     public static final String NOTIFICATION_PERMISSION_BOTTOM_SHEET =
+             "NotificationPermissionBottomSheet";
+     public static final String NOTIFICATION_TRAMPOLINE = "NotificationTrampoline";
++    public static final String OFFLINE_INDICATOR_V2 = "OfflineIndicatorV2";
+     public static final String OMAHA_MIN_SDK_VERSION_ANDROID = "OmahaMinSdkVersionAndroid";
+     public static final String OMNIBOX_CACHE_SUGGESTION_RESOURCES =
+             "OmniboxCacheSuggestionResources";
+diff --git a/cromite_flags/chrome/browser/about_flags_cc/Restore-offline-indicator-v2-flag.inc b/cromite_flags/chrome/browser/about_flags_cc/Restore-offline-indicator-v2-flag.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/about_flags_cc/Restore-offline-indicator-v2-flag.inc
+@@ -0,0 +1,12 @@
++#if BUILDFLAG(IS_ANDROID)
++
++#ifdef FLAG_SECTION
++
++    {"offline-indicator-v2",
++     "Offline indicator V2",
++     "Show a persistent offline indicator when offline.", kOsAndroid,
++     FEATURE_VALUE_TYPE(chrome::android::kOfflineIndicatorV2)},
++
++#endif
++
++#endif
+diff --git a/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Restore-offline-indicator-v2-flag.inc b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Restore-offline-indicator-v2-flag.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Restore-offline-indicator-v2-flag.inc
+@@ -0,0 +1,3 @@
++CROMITE_FEATURE(kOfflineIndicatorV2,
++                "OfflineIndicatorV2",
++                base::FEATURE_ENABLED_BY_DEFAULT);
+diff --git a/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Restore-offline-indicator-v2-flag.inc b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Restore-offline-indicator-v2-flag.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Restore-offline-indicator-v2-flag.inc
+@@ -0,0 +1 @@
++BASE_DECLARE_FEATURE(kOfflineIndicatorV2);
+--

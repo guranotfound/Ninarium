@@ -1,0 +1,782 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Tue, 18 Jun 2024 15:31:12 +0000
+Subject: Ask to restart on connection change
+
+Experimental use of the OfflineDetector to identify network change, disabled by default.
+If it is active, when the network change is detected by the android API,
+the user is warned and asked to restart the browser.
+Technically, blink's freeze mode is exploited, which allows javascript
+execution and network calls to be blocked.
+A preventive shutdown of all service workers is carried out, to inhibit the sending
+of messages over the new ip, since the service workers have access
+to the background fetch api.
+The freeze and resume event of javascript is deliberately left, since the
+page could deduct it in any case. In any case during the execution of
+the javascript events, the page can only access the FetchLater api,
+which is disabled by another patch.
+The patch also changes the standard behaviour of the browser, allowing visible pages to freeze.
+This could lead to the failure of some DCHECKS related to the handling of UI messages at unfreeze,
+but since the goal is a reboot, this should not be the case.
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../java/res/xml/homepage_preferences.xml     |   6 +
+ .../ConnectivityDetector.java                 |   1 -
+ .../indicator/OfflineDetector.java            | 111 +++++++++++++++++-
+ .../OfflineIndicatorControllerV2.java         |  15 ++-
+ .../tabbed_mode/TabbedRootUiCoordinator.java  |   5 +-
+ .../tabmodel/TabModelSelectorBase.java        |   7 ++
+ .../sAskForRestartOnConnectionChange.java     |  32 +++++
+ .../browser/tabmodel/TabModelSelector.java    |   2 +
+ .../browser/tabmodel/TabModelUtils.java       |  18 +++
+ .../browser/tabmodel/TabWindowManager.java    |   2 +
+ .../tabmodel/TabWindowManagerImpl.java        |  10 ++
+ .../Ask-for-restart-on-connection-change.grdp |  15 +++
+ .../android/java/res/layout/snackbar.xml      |  10 ++
+ .../ui/messages/snackbar/Snackbar.java        |  16 +++
+ .../ui/messages/snackbar/SnackbarManager.java |   6 +
+ .../ui/messages/snackbar/SnackbarView.java    |  13 +-
+ .../web_contents/web_contents_android.cc      |  16 +++
+ .../web_contents/web_contents_android.h       |   1 +
+ .../browser/web_contents/web_contents_impl.cc |   2 +
+ .../browser/webcontents/WebContentsImpl.java  |   8 ++
+ .../content_public/browser/WebContents.java   |   2 +
+ .../browser/test/mock/MockWebContents.java    |   3 +
+ .../Ask-for-restart-on-connection-change.inc  |  13 ++
+ .../Ask-for-restart-on-connection-change.inc  |   3 +
+ .../Ask-for-restart-on-connection-change.inc  |   1 +
+ .../blink/renderer/core/dom/document.cc       |   1 +
+ .../blink/renderer/core/frame/local_frame.cc  |   2 +
+ .../main_thread/frame_scheduler_impl.cc       |   2 +
+ .../main_thread/page_scheduler_impl.cc        |   9 +-
+ 29 files changed, 322 insertions(+), 10 deletions(-)
+ create mode 100644 chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/cromite/sAskForRestartOnConnectionChange.java
+ create mode 100644 chrome/browser/ui/android/strings/cromite_android_chrome_strings_grd/Ask-for-restart-on-connection-change.grdp
+ create mode 100644 cromite_flags/chrome/browser/about_flags_cc/Ask-for-restart-on-connection-change.inc
+ create mode 100644 cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Ask-for-restart-on-connection-change.inc
+ create mode 100644 cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Ask-for-restart-on-connection-change.inc
+
+diff --git a/chrome/android/java/res/xml/homepage_preferences.xml b/chrome/android/java/res/xml/homepage_preferences.xml
+--- a/chrome/android/java/res/xml/homepage_preferences.xml
++++ b/chrome/android/java/res/xml/homepage_preferences.xml
+@@ -25,6 +25,12 @@ found in the LICENSE file.
+         app:featureName="enable-show-ntp-at-startup"
+         app:needRestart="true" />
+ 
++    <org.chromium.components.browser_ui.settings.ChromeSwitchPreference
++        android:title="@string/ask_to_restart_on_connection_change_title"
++        android:summary="@string/ask_to_restart_on_connection_change_summary"
++        app:featureName="ask-for-restart-on-connection-change"
++        app:needRestart="true" />
++
+     <org.chromium.chrome.browser.homepage.settings.RadioButtonGroupHomepagePreference
+         android:key="homepage_radio_group"
+         android:selectable="false"
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java b/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java
+@@ -468,7 +468,6 @@ public class ConnectivityDetector implements NetworkChangeNotifier.ConnectionTyp
+     @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+     public void setConnectionState(@ConnectionState int connectionState) {
+         Log.i(TAG, "setConnectionState connectionState=" + connectionState);
+-        if (mConnectionState == connectionState) return;
+         mConnectionState = connectionState;
+         if (mObserver != null) mObserver.onConnectionStateChanged(mConnectionState);
+     }
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java b/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineDetector.java
+@@ -21,16 +21,38 @@ import org.chromium.base.version_info.VersionInfo;
+ import org.chromium.chrome.browser.flags.ChromeFeatureList;
+ import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector;
+ import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector.ConnectionState;
+-import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector;
+-import org.chromium.chrome.browser.net.connectivitydetector.ConnectivityDetector.ConnectionState;
+ import org.chromium.components.variations.VariationsAssociatedData;
+ 
++import android.app.Activity;
++import org.chromium.base.supplier.ObservableSupplier;
++import org.chromium.url.GURL;
++import org.chromium.chrome.R;
++import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
++import org.chromium.chrome.browser.layouts.LayoutManager;
++import org.chromium.chrome.browser.compositor.layouts.Layout;
++import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
++import org.chromium.chrome.browser.compositor.layouts.SceneChangeObserver;
++import org.chromium.chrome.browser.flags.cromite.sAskForRestartOnConnectionChange;
++import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
++import org.chromium.chrome.browser.ui.messages.snackbar.INeedSnackbarManager;
++import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
++import org.chromium.chrome.browser.hub.HubLayout;
++import org.chromium.chrome.browser.tab.Tab;
++import org.chromium.chrome.browser.tabmodel.TabModelUtils;
++import org.chromium.chrome.browser.tabmodel.TabModelSelector;
++import org.chromium.chrome.browser.tabmodel.TabWindowManager;
++import org.chromium.chrome.browser.lifetime.ApplicationLifetime;
++import org.chromium.content_public.browser.WebContentsObserver;
++import org.chromium.content_public.browser.WebContents;
++import org.chromium.net.NetworkChangeNotifier;
++
+ /**
+  * Class that detects if the network is offline. Waits for the network to stablize before notifying
+  * the observer.
+  */
+ class OfflineDetector
+-        implements ConnectivityDetector.Observer, ApplicationStatus.ApplicationStateListener {
++        implements ConnectivityDetector.Observer, ApplicationStatus.ApplicationStateListener,
++                   SnackbarManager.SnackbarController, SceneChangeObserver {
+     // If the connection is online, then we report that immediately via |mIsOfflineCallback|.
+     // |STATUS_INDICATOR_WAIT_ON_OFFLINE_DURATION_MS| and
+     // |mStatusIndicatorWaitOnSwitchOnlineToOfflineDurationMs| control the duration before
+@@ -116,6 +138,11 @@ class OfflineDetector
+ 
+     private static final String TAG = "OfflineDetector";
+ 
++    private long mLastNetworkId = 0;
++    private ObservableSupplier<TabModelSelector> mTabModelSelectorSupplier;
++    private ObservableSupplier<LayoutManager> mLayoutManager;
++    private Supplier<SnackbarManager> mSnackbarManagerSupplier;
++
+     /**
+      * Constructs the offline indicator.
+      * @param isOfflineCallback The {@link Callback} is invoked when the connectivity status is
+@@ -127,7 +154,13 @@ class OfflineDetector
+     OfflineDetector(
+             Callback<Boolean> isOfflineCallback,
+             Callback<Boolean> isForegroundCallback,
+-            Context context) {
++            Context context,
++            ObservableSupplier<TabModelSelector> tabModelSelectorSupplier,
++            ObservableSupplier<LayoutManager> layoutManager,
++            Supplier<SnackbarManager> snackbarManagerSupplier) {
++        mTabModelSelectorSupplier = tabModelSelectorSupplier;
++        mSnackbarManagerSupplier = snackbarManagerSupplier;
++        mLayoutManager = layoutManager;
+         mIsOfflineCallback = isOfflineCallback;
+         mIsForegroundCallback = isForegroundCallback;
+         mContext = context;
+@@ -231,6 +264,75 @@ class OfflineDetector
+         updateState();
+     }
+ 
++    private void checkLastNetworkId() {
++        if (!sAskForRestartOnConnectionChange.getInstance().isEnabled())
++            return;
++
++        long currentNetworkId = NetworkChangeNotifier.getInstance().getCurrentDefaultNetId();
++        Log.i(TAG, "onConnectionTypeChanged: currentNetworkId=" + currentNetworkId);
++
++        if (currentNetworkId != -1 && mLastNetworkId != 0
++              && mLastNetworkId != currentNetworkId) {
++            // close snackbar with scene change
++            LayoutManagerImpl layoutManager = (LayoutManagerImpl)mLayoutManager.get();
++            if (layoutManager != null) layoutManager.addSceneChangeObserver(this);
++
++            // close snackbar with reload
++            Tab currentTab = TabModelUtils.getCurrentTab(mTabModelSelectorSupplier.get().getCurrentModel());
++            if (currentTab != null) {
++                WebContents webContents = currentTab.getWebContents();
++                SnackbarManager.SnackbarController controller = this;
++                if (webContents != null) {
++                    new WebContentsObserver(webContents) {
++                        @Override
++                        public void didStartLoading(GURL url) {
++                            webContents.removeObserver(this);
++                            SnackbarManager snackbarManager = mSnackbarManagerSupplier.get();
++                            snackbarManager.dismissSnackbars(controller);
++                        }
++                    };
++                }
++            }
++
++            // freeze all pages
++            TabWindowManagerSingleton.getInstance().setPagesFrozen(true);
++
++            // show snackbar
++            Snackbar snackbar = Snackbar.make(
++                mContext.getString(R.string.ask_to_restart_on_connection_change_restart),
++                /* snackbarController */ this, Snackbar.TYPE_PERSISTENT, Snackbar.UMA_UNKNOWN)
++                .setSingleLine(false)
++                .setAction(mContext.getString(R.string.relaunch), /*actionData*/0)
++                .setDismissAction(mContext.getString(R.string.ask_to_restart_on_connection_change_close_notification), /*actionData*/1);
++            SnackbarManager snackbarManager = mSnackbarManagerSupplier.get();
++            if (!snackbarManager.isShowing())
++                snackbarManager.showSnackbar(snackbar);
++        }
++        mLastNetworkId = currentNetworkId;
++    }
++
++    // SnackbarManager.SnackbarController
++    @Override
++    public void onDismissNoAction(Object actionData) {
++        ((LayoutManagerImpl)mLayoutManager.get()).removeSceneChangeObserver(this);
++        TabWindowManagerSingleton.getInstance().setPagesFrozen(false);
++    }
++
++    @Override
++    public void onAction(Object actionData) {
++        if ((int)actionData == 0)
++            ApplicationLifetime.terminate(true);
++    }
++
++    // TabWindowManager.Observer
++    @Override
++    public void onSceneChange(Layout layout) {
++        if (!(layout instanceof HubLayout)) {
++            SnackbarManager snackbarManager = mSnackbarManagerSupplier.get();
++            snackbarManager.dismissSnackbars(this);
++        }
++    }
++
+     private void logToAdbConsoleNow(String prefix) {
+         Log.i(
+                 TAG,
+@@ -316,6 +418,7 @@ class OfflineDetector
+      ** Calls |mUpdateOfflineStatusIndicatorDelayedRunnable| to update the connection state.
+      */
+     private void updateState() {
++        checkLastNetworkId();
+         mHandler.removeCallbacks(mUpdateOfflineStatusIndicatorDelayedRunnable);
+ 
+         // Do not update state while the app is in background.
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineIndicatorControllerV2.java b/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineIndicatorControllerV2.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineIndicatorControllerV2.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/offlinepages/indicator/OfflineIndicatorControllerV2.java
+@@ -28,6 +28,11 @@ import org.chromium.content_public.common.ContentSwitches;
+ import java.lang.annotation.Retention;
+ import java.lang.annotation.RetentionPolicy;
+ 
++import org.chromium.base.supplier.ObservableSupplierImpl;
++import org.chromium.chrome.browser.layouts.LayoutManager;
++import org.chromium.chrome.browser.tabmodel.TabModelSelector;
++import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
++
+ /**
+  * Class that controls visibility and content of {@link StatusIndicatorCoordinator} to relay
+  * connectivity information.
+@@ -101,7 +106,10 @@ public class OfflineIndicatorControllerV2 {
+             Context context,
+             StatusIndicatorCoordinator statusIndicator,
+             ObservableSupplier<Boolean> isUrlBarFocusedSupplier,
+-            Supplier<Boolean> canAnimateNativeBrowserControls) {
++            Supplier<Boolean> canAnimateNativeBrowserControls,
++            ObservableSupplier<TabModelSelector> tabModelSelectorSupplier,
++            ObservableSupplierImpl<LayoutManager> layoutManager,
++            Supplier<SnackbarManager> snackbarManagerSupplier) {
+         if (CommandLine.getInstance()
+                 .hasSwitch(ContentSwitches.FORCE_ONLINE_CONNECTION_STATE_FOR_INDICATOR)) {
+             // If "force online connection state" switch is set, the offline indicator should never
+@@ -129,7 +137,10 @@ public class OfflineIndicatorControllerV2 {
+                     new OfflineDetector(
+                             (Boolean offline) -> onConnectionStateChanged(offline),
+                             (Boolean isForeground) -> onApplicationStateChanged(isForeground),
+-                            mContext);
++                            mContext,
++                            tabModelSelectorSupplier,
++                            layoutManager,
++                            snackbarManagerSupplier);
+         }
+ 
+         // Initializes the application state.
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java b/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/tabbed_mode/TabbedRootUiCoordinator.java
+@@ -1169,7 +1169,10 @@ public class TabbedRootUiCoordinator extends RootUiCoordinator {
+                         mActivity,
+                         mStatusIndicatorCoordinator,
+                         isUrlBarFocusedSupplier,
+-                        mCanAnimateBrowserControls);
++                        mCanAnimateBrowserControls,
++                        mTabModelSelectorSupplier,
++                        mLayoutManagerSupplier,
++                        mSnackbarManagerSupplier);
+         if (mToolbarManager.getOmniboxStub() != null) {
+             mToolbarManager.getOmniboxStub().addUrlFocusChangeListener(mUrlFocusChangeListener);
+         }
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelectorBase.java b/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelectorBase.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelectorBase.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelectorBase.java
+@@ -337,6 +337,13 @@ public abstract class TabModelSelectorBase
+         return null;
+     }
+ 
++    @Override
++    public void setPagesFrozen(boolean frozen) {
++        for (int i = 0; i < getModels().size(); i++) {
++            TabModelUtils.setPagesFrozen(mTabModels.get(i), frozen);
++        }
++    }
++
+     @Override
+     public void closeAllTabs() {
+         closeAllTabs(false);
+diff --git a/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/cromite/sAskForRestartOnConnectionChange.java b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/cromite/sAskForRestartOnConnectionChange.java
+new file mode 100644
+--- /dev/null
++++ b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/cromite/sAskForRestartOnConnectionChange.java
+@@ -0,0 +1,32 @@
++/*
++    This file is part of Cromite.
++
++    Cromite is free software: you can redistribute it and/or modify
++    it under the terms of the GNU General Public License as published by
++    the Free Software Foundation, either version 3 of the License, or
++    (at your option) any later version.
++
++    Cromite is distributed in the hope that it will be useful,
++    but WITHOUT ANY WARRANTY; without even the implied warranty of
++    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++    GNU General Public License for more details.
++
++    You should have received a copy of the GNU General Public License
++    along with Cromite. If not, see <https://www.gnu.org/licenses/>.
++*/
++
++package org.chromium.chrome.browser.flags.cromite;
++
++import org.chromium.components.cached_flags.CachedFlag;
++import org.chromium.chrome.browser.flags.ChromeFeatureMap;
++
++public class sAskForRestartOnConnectionChange {
++    private static final CachedFlag sInstance =
++        new CachedFlag(ChromeFeatureMap.getInstance(), "AskForRestartOnConnectionChange", false);
++
++    private sAskForRestartOnConnectionChange() {}
++
++    public static CachedFlag getInstance() {
++        return sInstance;
++    }
++}
+diff --git a/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelector.java b/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelector.java
+--- a/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelector.java
++++ b/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelSelector.java
+@@ -140,6 +140,8 @@ public interface TabModelSelector {
+     /** Close all tabs across all tab models */
+     void closeAllTabs();
+ 
++    void setPagesFrozen(boolean frozen);
++
+     /**
+      * Close all tabs across all tab models
+      * @param uponExit true iff the tabs are being closed upon application exit (after user presses
+diff --git a/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelUtils.java b/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelUtils.java
+--- a/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelUtils.java
++++ b/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabModelUtils.java
+@@ -17,10 +17,14 @@ import org.chromium.base.supplier.SupplierUtils;
+ import org.chromium.chrome.browser.tab.Tab;
+ import org.chromium.chrome.browser.tab.TabSelectionType;
+ import org.chromium.content_public.browser.WebContents;
++import org.chromium.content_public.browser.Visibility;
+ import org.chromium.ui.base.WindowAndroid;
+ 
+ import java.util.ArrayList;
+ import java.util.List;
++import java.util.Collections;
++import java.util.stream.IntStream;
++import java.util.stream.Collectors;
+ 
+ /**
+  * A set of convenience methods used for interacting with {@link TabList}s and {@link TabModel}s.
+@@ -89,6 +93,20 @@ public class TabModelUtils {
+         return TabModel.INVALID_TAB_INDEX;
+     }
+ 
++    public static void setPagesFrozen(TabList model, boolean frozen) {
++        List<Integer> loop = IntStream.range(0, model.getCount())
++                                      .boxed()
++                                      .collect(Collectors.toList());
++        Collections.shuffle(loop);
++        loop.forEach(tabId -> {
++            Tab tab = model.getTabAt(tabId);
++            WebContents webContents = tab.getWebContents();
++            if (webContents != null) {
++                webContents.setPageFrozen(frozen);
++            }
++        });
++    }
++
+     /**
+      * Find the {@link Tab} index whose URL matches the specified URL.
+      *
+diff --git a/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManager.java b/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManager.java
+--- a/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManager.java
++++ b/chrome/browser/tabmodel/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManager.java
+@@ -103,6 +103,8 @@ public interface TabWindowManager {
+      */
+     int getIncognitoTabCount();
+ 
++    void setPagesFrozen(boolean frozen);
++
+     /**
+      * @param tab The tab to look for in each model.
+      * @return The TabModel containing the given Tab or null if one doesn't exist.
+diff --git a/chrome/browser/tabmodel/internal/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManagerImpl.java b/chrome/browser/tabmodel/internal/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManagerImpl.java
+--- a/chrome/browser/tabmodel/internal/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManagerImpl.java
++++ b/chrome/browser/tabmodel/internal/android/java/src/org/chromium/chrome/browser/tabmodel/TabWindowManagerImpl.java
+@@ -456,6 +456,16 @@ public class TabWindowManagerImpl implements ActivityStateListener, TabWindowMan
+         return null;
+     }
+ 
++    @Override
++    public void setPagesFrozen(boolean frozen) {
++        for (int i = 0; i < mSelectors.size(); i++) {
++            TabModelSelector selector = mSelectors.get(i);
++            if (selector != null) {
++                selector.setPagesFrozen(frozen);
++            }
++        }
++    }
++
+     @Override
+     public TabModelSelector getTabModelSelectorById(int index) {
+         return mSelectors.get(index);
+diff --git a/chrome/browser/ui/android/strings/cromite_android_chrome_strings_grd/Ask-for-restart-on-connection-change.grdp b/chrome/browser/ui/android/strings/cromite_android_chrome_strings_grd/Ask-for-restart-on-connection-change.grdp
+new file mode 100644
+--- /dev/null
++++ b/chrome/browser/ui/android/strings/cromite_android_chrome_strings_grd/Ask-for-restart-on-connection-change.grdp
+@@ -0,0 +1,15 @@
++<?xml version="1.0" encoding="utf-8"?>
++<grit-part>
++    <message name="IDS_ASK_TO_RESTART_ON_CONNECTION_CHANGE_TITLE" desc="Text for 'Ask to restart on connection change' settings option.">
++        Ask to restart on connection change
++    </message>
++    <message name="IDS_ASK_TO_RESTART_ON_CONNECTION_CHANGE_SUMMARY" desc="Summary text for 'Ask to restart on connection change' settings option.">
++        If the IP of the connection changes, access to the network is blocked and a browser restart is requested
++    </message>
++    <message name="IDS_ASK_TO_RESTART_ON_CONNECTION_CHANGE_RESTART" desc="">
++        Connection to internet has changed, execution is paused. Restart Cromite?
++    </message>
++    <message name="IDS_ASK_TO_RESTART_ON_CONNECTION_CHANGE_CLOSE_NOTIFICATION" desc="">
++        Not now
++    </message>
++</grit-part>
+diff --git a/chrome/browser/ui/messages/android/java/res/layout/snackbar.xml b/chrome/browser/ui/messages/android/java/res/layout/snackbar.xml
+--- a/chrome/browser/ui/messages/android/java/res/layout/snackbar.xml
++++ b/chrome/browser/ui/messages/android/java/res/layout/snackbar.xml
+@@ -82,5 +82,15 @@ found in the LICENSE file.
+             android:paddingEnd="24dp"
+             android:paddingStart="24dp"
+             style="@style/TextButton" />
++
++        <org.chromium.ui.widget.ButtonCompat
++            android:id="@+id/snackbar_dismiss"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_gravity="center_vertical"
++            android:paddingEnd="24dp"
++            android:paddingStart="24dp"
++            android:visibility="gone"
++            style="@style/TextButton" />
+     </LinearLayout>
+ </RelativeLayout>
+diff --git a/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/Snackbar.java b/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/Snackbar.java
+--- a/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/Snackbar.java
++++ b/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/Snackbar.java
+@@ -130,6 +130,8 @@ public class Snackbar {
+     private String mTemplateText;
+     private String mActionText;
+     private Object mActionData;
++    private String mDismissActionText;
++    private Object mDismissActionData;
+     private String mAccessibilityActionAnnouncement;
+     private int mBackgroundColor;
+     private int mTextApperanceResId;
+@@ -198,6 +200,20 @@ public class Snackbar {
+         return this;
+     }
+ 
++    public Snackbar setDismissAction(String actionText, Object actionData) {
++        mDismissActionText = actionText;
++        mDismissActionData = actionData;
++        return this;
++    }
++
++    public String getDismissActionText() {
++        return mDismissActionText;
++    }
++
++    Object getDismissActionData() {
++        return mDismissActionData;
++    }
++
+     /**
+      * Sets the text to accessibility announce when the action button is pressed.
+      * @param accessibilityActionAnnouncement An optional string to be announced when the action
+diff --git a/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarManager.java b/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarManager.java
+--- a/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarManager.java
++++ b/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarManager.java
+@@ -318,6 +318,12 @@ public class SnackbarManager
+                         new SnackbarView(
+                                 mActivity,
+                                 this,
++                                new View.OnClickListener() {
++                                    @Override
++                                    public void onClick(View v) {
++                                        dismissSnackbars(currentSnackbar.getController());
++                                    }
++                                },
+                                 currentSnackbar,
+                                 mOriginalParentView,
+                                 mWindowAndroid,
+diff --git a/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarView.java b/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarView.java
+--- a/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarView.java
++++ b/chrome/browser/ui/messages/android/java/src/org/chromium/chrome/browser/ui/messages/snackbar/SnackbarView.java
+@@ -51,6 +51,7 @@ public class SnackbarView implements InsetObserver.WindowInsetObserver {
+     protected final ViewGroup mSnackbarView;
+     protected final TemplatePreservingTextView mMessageView;
+     private final TextView mActionButtonView;
++    private final TextView mDismissButtonView;
+     private final ImageView mProfileImageView;
+     private final int mAnimationDuration;
+     private final boolean mIsTablet;
+@@ -97,11 +98,12 @@ public class SnackbarView implements InsetObserver.WindowInsetObserver {
+     public SnackbarView(
+             Activity activity,
+             OnClickListener listener,
++            OnClickListener dismissListener,
+             Snackbar snackbar,
+             ViewGroup parentView,
+             @Nullable WindowAndroid windowAndroid,
+             boolean isTablet) {
+-        this(activity, listener, snackbar, parentView, windowAndroid, null, isTablet);
++        this(activity, listener, dismissListener, snackbar, parentView, windowAndroid, null, isTablet);
+     }
+ 
+     /**
+@@ -120,6 +122,7 @@ public class SnackbarView implements InsetObserver.WindowInsetObserver {
+     public SnackbarView(
+             Activity activity,
+             OnClickListener listener,
++            OnClickListener dismissListener,
+             Snackbar snackbar,
+             ViewGroup parentView,
+             @Nullable WindowAndroid windowAndroid,
+@@ -141,6 +144,8 @@ public class SnackbarView implements InsetObserver.WindowInsetObserver {
+                 (TemplatePreservingTextView) mContainerView.findViewById(R.id.snackbar_message);
+         mActionButtonView = (TextView) mContainerView.findViewById(R.id.snackbar_button);
+         mActionButtonView.setOnClickListener(listener);
++        mDismissButtonView = (TextView) mContainerView.findViewById(R.id.snackbar_dismiss);
++        mDismissButtonView.setOnClickListener(dismissListener);
+         mProfileImageView = (ImageView) mContainerView.findViewById(R.id.snackbar_profile_image);
+         mEdgeToEdgeSupplier = edgeToEdgeSupplier;
+         mEdgeToEdgePadAdjuster =
+@@ -376,6 +381,12 @@ public class SnackbarView implements InsetObserver.WindowInsetObserver {
+             mActionButtonView.setVisibility(View.VISIBLE);
+             mActionButtonView.setContentDescription(snackbar.getActionText());
+             setViewText(mActionButtonView, snackbar.getActionText(), animate);
++            String dismissActionText = snackbar.getDismissActionText();
++            if (dismissActionText != null) {
++                mDismissButtonView.setVisibility(View.VISIBLE);
++                mDismissButtonView.setContentDescription(dismissActionText);
++                setViewText(mDismissButtonView, dismissActionText, animate);
++            }
+             // Set the end margin on the message view to 0 when there is action text.
+             if (mMessageView.getLayoutParams() instanceof LayoutParams) {
+                 LayoutParams lp = (LayoutParams) mMessageView.getLayoutParams();
+diff --git a/content/browser/web_contents/web_contents_android.cc b/content/browser/web_contents/web_contents_android.cc
+--- a/content/browser/web_contents/web_contents_android.cc
++++ b/content/browser/web_contents/web_contents_android.cc
+@@ -904,6 +904,22 @@ void WebContentsAndroid::SetFocus(JNIEnv* env, jboolean focused) {
+   view->SetFocus(focused);
+ }
+ 
++void WebContentsAndroid::SetPageFrozen(JNIEnv* env, jboolean frozen) {
++  // shutdown service workers
++  BrowserContext* browser_context =
++      web_contents_->GetBrowserContext();
++  browser_context->ForEachLoadedStoragePartition(
++      [](StoragePartition* partition) {
++        scoped_refptr<ServiceWorkerContextWrapper> context =
++            static_cast<ServiceWorkerContextWrapper*>(
++                partition->GetServiceWorkerContext());
++        context->Shutdown();
++      });
++
++  SuspendAllMediaPlayers(env);
++  web_contents_->SetPageFrozen(frozen);
++}
++
+ bool WebContentsAndroid::IsBeingDestroyed(JNIEnv* env) {
+   return web_contents_->IsBeingDestroyed();
+ }
+diff --git a/content/browser/web_contents/web_contents_android.h b/content/browser/web_contents/web_contents_android.h
+--- a/content/browser/web_contents/web_contents_android.h
++++ b/content/browser/web_contents/web_contents_android.h
+@@ -197,6 +197,7 @@ class CONTENT_EXPORT WebContentsAndroid {
+ 
+   void OnScaleFactorChanged(JNIEnv* env);
+   void SetFocus(JNIEnv* env, jboolean focused);
++  void SetPageFrozen(JNIEnv* env, jboolean frozen);
+   bool IsBeingDestroyed(JNIEnv* env);
+ 
+   void SetDisplayCutoutSafeArea(JNIEnv* env,
+diff --git a/content/browser/web_contents/web_contents_impl.cc b/content/browser/web_contents/web_contents_impl.cc
+--- a/content/browser/web_contents/web_contents_impl.cc
++++ b/content/browser/web_contents/web_contents_impl.cc
+@@ -3574,8 +3574,10 @@ void WebContentsImpl::Stop() {
+ void WebContentsImpl::SetPageFrozen(bool frozen) {
+   TRACE_EVENT1("content", "WebContentsImpl::SetPageFrozen", "frozen", frozen);
+ 
++#if !BUILDFLAG(IS_ANDROID)
+   // A visible page is never frozen.
+   DCHECK_NE(Visibility::VISIBLE, GetVisibility());
++#endif
+ 
+   primary_frame_tree_.ForEachRenderViewHost(
+       [&frozen](RenderViewHostImpl* rvh) { rvh->SetIsFrozen(frozen); });
+diff --git a/content/public/android/java/src/org/chromium/content/browser/webcontents/WebContentsImpl.java b/content/public/android/java/src/org/chromium/content/browser/webcontents/WebContentsImpl.java
+--- a/content/public/android/java/src/org/chromium/content/browser/webcontents/WebContentsImpl.java
++++ b/content/public/android/java/src/org/chromium/content/browser/webcontents/WebContentsImpl.java
+@@ -1156,6 +1156,12 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
+         WebContentsImplJni.get().setFocus(mNativeWebContentsAndroid, hasFocus);
+     }
+ 
++    @Override
++    public void setPageFrozen(boolean frozen) {
++        if (mNativeWebContentsAndroid == 0) return;
++        WebContentsImplJni.get().setPageFrozen(mNativeWebContentsAndroid, frozen);
++    }
++
+     @Override
+     public void setDisplayCutoutSafeArea(Rect insets) {
+         if (mNativeWebContentsAndroid == 0) return;
+@@ -1438,6 +1444,8 @@ public class WebContentsImpl implements WebContents, RenderFrameHostDelegate, Wi
+ 
+         void setFocus(long nativeWebContentsAndroid, boolean focused);
+ 
++        void setPageFrozen(long nativeWebContentsAndroid, boolean frozen);
++
+         void setDisplayCutoutSafeArea(
+                 long nativeWebContentsAndroid, int top, int left, int bottom, int right);
+ 
+diff --git a/content/public/android/java/src/org/chromium/content_public/browser/WebContents.java b/content/public/android/java/src/org/chromium/content_public/browser/WebContents.java
+--- a/content/public/android/java/src/org/chromium/content_public/browser/WebContents.java
++++ b/content/public/android/java/src/org/chromium/content_public/browser/WebContents.java
+@@ -283,6 +283,8 @@ public interface WebContents extends Parcelable {
+      */
+     void setFocus(boolean hasFocus);
+ 
++    void setPageFrozen(boolean frozen);
++
+     /**
+      * @return true if the renderer is in fullscreen mode.
+      */
+diff --git a/content/public/test/android/javatests/src/org/chromium/content_public/browser/test/mock/MockWebContents.java b/content/public/test/android/javatests/src/org/chromium/content_public/browser/test/mock/MockWebContents.java
+--- a/content/public/test/android/javatests/src/org/chromium/content_public/browser/test/mock/MockWebContents.java
++++ b/content/public/test/android/javatests/src/org/chromium/content_public/browser/test/mock/MockWebContents.java
+@@ -187,6 +187,9 @@ public class MockWebContents implements WebContents {
+     @Override
+     public void setFocus(boolean hasFocus) {}
+ 
++    @Override
++    public void setPageFrozen(boolean frozen) {}
++
+     @Override
+     public boolean isFullscreenForCurrentTab() {
+         return false;
+diff --git a/cromite_flags/chrome/browser/about_flags_cc/Ask-for-restart-on-connection-change.inc b/cromite_flags/chrome/browser/about_flags_cc/Ask-for-restart-on-connection-change.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/about_flags_cc/Ask-for-restart-on-connection-change.inc
+@@ -0,0 +1,13 @@
++#ifdef FLAG_SECTION
++
++#if BUILDFLAG(IS_ANDROID)
++
++    {"ask-for-restart-on-connection-change",
++     "Restart on connection change",
++     "Asks the user whether to restart the browser when the connection changes.",
++     kOsAndroid,
++     FEATURE_VALUE_TYPE(chrome::android::kAskForRestartOnConnectionChange)},
++
++#endif
++
++#endif
+diff --git a/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Ask-for-restart-on-connection-change.inc b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Ask-for-restart-on-connection-change.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_cc/Ask-for-restart-on-connection-change.inc
+@@ -0,0 +1,3 @@
++CROMITE_FEATURE(kAskForRestartOnConnectionChange,
++                "AskForRestartOnConnectionChange",
++                base::FEATURE_ENABLED_BY_DEFAULT);
+diff --git a/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Ask-for-restart-on-connection-change.inc b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Ask-for-restart-on-connection-change.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/flags/android/chrome_feature_list_h/Ask-for-restart-on-connection-change.inc
+@@ -0,0 +1 @@
++BASE_DECLARE_FEATURE(kAskForRestartOnConnectionChange);
+diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -4250,6 +4250,7 @@ void Document::DispatchUnloadEvents(UnloadEventTimingInfo* unload_timing_info) {
+ }
+ 
+ void Document::DispatchFreezeEvent() {
++  DLOG(INFO) << "---Document::DispatchFreezeEvent";
+   SetFreezingInProgress(true);
+   DispatchEvent(*Event::Create(event_type_names::kFreeze));
+   SetFreezingInProgress(false);
+diff --git a/third_party/blink/renderer/core/frame/local_frame.cc b/third_party/blink/renderer/core/frame/local_frame.cc
+--- a/third_party/blink/renderer/core/frame/local_frame.cc
++++ b/third_party/blink/renderer/core/frame/local_frame.cc
+@@ -3226,6 +3226,7 @@ void LocalFrame::DidFreeze() {
+   LoaderFreezeMode freeze_mode = GetLoaderFreezeMode();
+   GetDocument()->Fetcher()->SetDefersLoading(freeze_mode);
+   Loader().SetDefersLoading(freeze_mode);
++  DLOG(INFO) << "---LocalFrame::DidFreeze end " << (int)freeze_mode;
+ }
+ 
+ void LocalFrame::DidResume() {
+@@ -3240,6 +3241,7 @@ void LocalFrame::DidResume() {
+   GetDocument()->Fetcher()->SetDefersLoading(LoaderFreezeMode::kNone);
+   Loader().SetDefersLoading(LoaderFreezeMode::kNone);
+ 
++  DLOG(INFO) << "---LocalFrame::DidResume";
+   GetDocument()->DispatchEvent(*Event::Create(event_type_names::kResume));
+   // TODO(fmeawad): Move the following logic to the page once we have a
+   // PageResourceCoordinator in Blink
+diff --git a/third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.cc b/third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.cc
+--- a/third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.cc
++++ b/third_party/blink/renderer/platform/scheduler/main_thread/frame_scheduler_impl.cc
+@@ -982,7 +982,9 @@ SchedulingLifecycleState FrameSchedulerImpl::CalculateLifecycleState(
+   if (!parent_page_scheduler_)
+     return SchedulingLifecycleState::kNotThrottled;
+   if (parent_page_scheduler_->IsFrozen()) {
++#if !BUILDFLAG(IS_ANDROID)
+     DCHECK(!parent_page_scheduler_->IsPageVisible());
++#endif
+     return SchedulingLifecycleState::kStopped;
+   }
+   if (subresource_loading_paused_ && type == ObserverType::kLoader)
+diff --git a/third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc b/third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc
+--- a/third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc
++++ b/third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc
+@@ -238,10 +238,12 @@ void PageSchedulerImpl::SetPageFrozen(bool frozen) {
+   // it is desirable to reject the page freeze to prevent the scheduler from
+   // being put in a bad state. See https://crbug.com/873214 for context of how
+   // this can happen on the browser side.
++#if !BUILDFLAG(IS_ANDROID)
+   if (frozen && IsPageVisible()) {
+     DCHECK(false);
+     return;
+   }
++#endif
+   PolicyUpdater policy_updater;
+   SetPageFrozenImpl(frozen, policy_updater);
+ }
+@@ -799,7 +801,12 @@ bool PageSchedulerImpl::IsBackgrounded() const {
+   // expire immediately when a page is backgrounded, which is undesirable in
+   // headless mode. To prevent that, a page is never considerer backgrounded
+   // when virtual time is enabled.
+-  return !IsPageVisible() && !IsAudioPlaying() &&
++#if BUILDFLAG(IS_ANDROID)
++  bool page_visible = true;
++#else
++  bool page_visible = IsPageVisible();
++#endif
++  return !page_visible && !IsAudioPlaying() &&
+          !main_thread_scheduler_->IsVirtualTimeEnabled();
+ }
+ 
+--

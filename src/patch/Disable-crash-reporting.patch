@@ -1,0 +1,36 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Sat, 9 Apr 2022 21:43:35 +0200
+Subject: Disable crash reporting
+
+---
+ chrome/browser/chrome_content_browser_client.cc          | 9 ---------
+ .../content_features_cc/Disable-crash-reporting.inc      | 1 +
+ 2 files changed, 1 insertion(+), 9 deletions(-)
+ create mode 100644 cromite_flags/content/public/common/content_features_cc/Disable-crash-reporting.inc
+
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -2737,15 +2737,6 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+         base::NumberToString(pid));
+   }
+ #endif
+-  std::string switch_value;
+-  std::unique_ptr<metrics::ClientInfo> client_info =
+-      GoogleUpdateSettings::LoadMetricsClientInfo();
+-  if (client_info) {
+-    switch_value = client_info->client_id;
+-  }
+-  switch_value.push_back(',');
+-  switch_value.append(chrome::GetChannelName(chrome::WithExtendedStable(true)));
+-  command_line->AppendSwitchASCII(switches::kEnableCrashReporter, switch_value);
+ #endif
+ 
+   if (logging::DialogsAreSuppressed())
+diff --git a/cromite_flags/content/public/common/content_features_cc/Disable-crash-reporting.inc b/cromite_flags/content/public/common/content_features_cc/Disable-crash-reporting.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/content/public/common/content_features_cc/Disable-crash-reporting.inc
+@@ -0,0 +1 @@
++SET_CROMITE_FEATURE_DISABLED(kCrashReporting);
+--

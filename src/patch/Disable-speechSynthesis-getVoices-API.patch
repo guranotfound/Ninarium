@@ -1,0 +1,185 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Thu, 20 Apr 2023 15:03:13 +0000
+Subject: Disable speechSynthesis getVoices API
+
+Adds flag disable-speechsynthesis-voice-list to disable
+SpeechSynthesis.getVoices() call.
+If not active the user must also set the system timezone override
+to enable it.
+Disable LiveCaption
+Require: Timezone-customization.patch
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../renderer/chrome_content_renderer_client.cc  |  2 +-
+ .../renderer/content_settings_agent_impl.cc     |  9 ++++++++-
+ .../renderer/content_settings_agent_impl.h      |  2 ++
+ content/browser/speech/tts_android.cc           |  2 +-
+ content/browser/speech/tts_win.cc               |  2 +-
+ .../Disable-speechSynthesis-getVoices-API.inc   |  8 ++++++++
+ .../Disable-speechSynthesis-getVoices-API.inc   |  2 ++
+ .../Disable-speechSynthesis-getVoices-API.inc   |  3 +++
+ .../Disable-speechSynthesis-getVoices-API.inc   |  1 +
+ .../platform/web_content_settings_client.h      |  2 ++
+ .../renderer/modules/speech/speech_synthesis.cc | 17 ++++++++++++++---
+ 11 files changed, 43 insertions(+), 7 deletions(-)
+ create mode 100644 cromite_flags/chrome/browser/about_flags_cc/Disable-speechSynthesis-getVoices-API.inc
+ create mode 100644 cromite_flags/media/base/media_switches_cc/Disable-speechSynthesis-getVoices-API.inc
+ create mode 100644 cromite_flags/third_party/blink/common/features_cc/Disable-speechSynthesis-getVoices-API.inc
+ create mode 100644 cromite_flags/third_party/blink/common/features_h/Disable-speechSynthesis-getVoices-API.inc
+
+diff --git a/chrome/renderer/chrome_content_renderer_client.cc b/chrome/renderer/chrome_content_renderer_client.cc
+--- a/chrome/renderer/chrome_content_renderer_client.cc
++++ b/chrome/renderer/chrome_content_renderer_client.cc
+@@ -1693,7 +1693,7 @@ ChromeContentRendererClient::CreateWorkerContentSettingsClient(
+ std::unique_ptr<media::SpeechRecognitionClient>
+ ChromeContentRendererClient::CreateSpeechRecognitionClient(
+     content::RenderFrame* render_frame) {
+-  return std::make_unique<ChromeSpeechRecognitionClient>(render_frame);
++  return nullptr;
+ }
+ #endif  // BUILDFLAG(ENABLE_SPEECH_SERVICE)
+ 
+diff --git a/components/content_settings/renderer/content_settings_agent_impl.cc b/components/content_settings/renderer/content_settings_agent_impl.cc
+--- a/components/content_settings/renderer/content_settings_agent_impl.cc
++++ b/components/content_settings/renderer/content_settings_agent_impl.cc
+@@ -476,6 +476,14 @@ void ContentSettingsAgentImpl::ClearBlockedContentSettings() {
+   cached_script_permissions_.clear();
+ }
+ 
++bool ContentSettingsAgentImpl::IsTimezoneChanged() {
++  if (!content_setting_rules_)
++    return false;
++  // CONTENT_SETTING_ALLOW = use system time
++  return CONTENT_SETTING_ALLOW != GetContentSetting(
++             ContentSettingsType::TIMEZONE_OVERRIDE, CONTENT_SETTING_ALLOW);
++}
++
+ bool ContentSettingsAgentImpl::UpdateOverrides() {
+   // Evaluate the content setting rules
+   ContentSetting setting = CONTENT_SETTING_ALLOW;
+@@ -486,7 +494,6 @@ bool ContentSettingsAgentImpl::UpdateOverrides() {
+   }
+   return UpdateTimeZoneOverride(
+       setting, content_setting_rules_->timezone_override_value);
+-  //&& UpdateLocaleOverride(setting);
+ }
+ 
+ bool ContentSettingsAgentImpl::UpdateTimeZoneOverride(
+diff --git a/components/content_settings/renderer/content_settings_agent_impl.h b/components/content_settings/renderer/content_settings_agent_impl.h
+--- a/components/content_settings/renderer/content_settings_agent_impl.h
++++ b/components/content_settings/renderer/content_settings_agent_impl.h
+@@ -120,6 +120,8 @@ class ContentSettingsAgentImpl
+   void SetRendererContentSettingRulesForTest(
+       const RendererContentSettingRules& rules);
+ 
++  bool IsTimezoneChanged() override;
++
+  protected:
+   // Allow this to be overridden by tests.
+   virtual void BindContentSettingsManager(
+diff --git a/content/browser/speech/tts_android.cc b/content/browser/speech/tts_android.cc
+--- a/content/browser/speech/tts_android.cc
++++ b/content/browser/speech/tts_android.cc
+@@ -44,7 +44,7 @@ TtsPlatformImplAndroid::~TtsPlatformImplAndroid() {
+ }
+ 
+ bool TtsPlatformImplAndroid::PlatformImplSupported() {
+-  return true;
++  return false;
+ }
+ 
+ bool TtsPlatformImplAndroid::PlatformImplInitialized() {
+diff --git a/content/browser/speech/tts_win.cc b/content/browser/speech/tts_win.cc
+--- a/content/browser/speech/tts_win.cc
++++ b/content/browser/speech/tts_win.cc
+@@ -156,7 +156,7 @@ class TtsPlatformImplWin : public TtsPlatformImpl {
+   TtsPlatformImplWin(const TtsPlatformImplWin&) = delete;
+   TtsPlatformImplWin& operator=(const TtsPlatformImplWin&) = delete;
+ 
+-  bool PlatformImplSupported() override { return true; }
++  bool PlatformImplSupported() override { return false; }
+   bool PlatformImplInitialized() override;
+ 
+   void Speak(int utterance_id,
+diff --git a/cromite_flags/chrome/browser/about_flags_cc/Disable-speechSynthesis-getVoices-API.inc b/cromite_flags/chrome/browser/about_flags_cc/Disable-speechSynthesis-getVoices-API.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/about_flags_cc/Disable-speechSynthesis-getVoices-API.inc
+@@ -0,0 +1,8 @@
++#ifdef FLAG_SECTION
++
++    {"disable-speechsynthesis-voice-list",
++     "Disable speechSynthesis.getVoices()",
++     "Disables access to the list of items installed on the device", kOsAll,
++     FEATURE_VALUE_TYPE(blink::features::kDisableSpeechSynthesisVoiceList)},
++
++#endif
+diff --git a/cromite_flags/media/base/media_switches_cc/Disable-speechSynthesis-getVoices-API.inc b/cromite_flags/media/base/media_switches_cc/Disable-speechSynthesis-getVoices-API.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/media/base/media_switches_cc/Disable-speechSynthesis-getVoices-API.inc
+@@ -0,0 +1,2 @@
++SET_CROMITE_FEATURE_DISABLED(kLiveCaption);
++SET_CROMITE_FEATURE_DISABLED(kLiveCaptionWebAudio);
+diff --git a/cromite_flags/third_party/blink/common/features_cc/Disable-speechSynthesis-getVoices-API.inc b/cromite_flags/third_party/blink/common/features_cc/Disable-speechSynthesis-getVoices-API.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/third_party/blink/common/features_cc/Disable-speechSynthesis-getVoices-API.inc
+@@ -0,0 +1,3 @@
++CROMITE_FEATURE(kDisableSpeechSynthesisVoiceList,
++                "DisableSpeechSynthesisVoiceList",
++                base::FEATURE_ENABLED_BY_DEFAULT);
+diff --git a/cromite_flags/third_party/blink/common/features_h/Disable-speechSynthesis-getVoices-API.inc b/cromite_flags/third_party/blink/common/features_h/Disable-speechSynthesis-getVoices-API.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/third_party/blink/common/features_h/Disable-speechSynthesis-getVoices-API.inc
+@@ -0,0 +1 @@
++BLINK_COMMON_EXPORT BASE_DECLARE_FEATURE(kDisableSpeechSynthesisVoiceList);
+diff --git a/third_party/blink/public/platform/web_content_settings_client.h b/third_party/blink/public/platform/web_content_settings_client.h
+--- a/third_party/blink/public/platform/web_content_settings_client.h
++++ b/third_party/blink/public/platform/web_content_settings_client.h
+@@ -106,6 +106,8 @@ class WebContentSettingsClient {
+   // frame.
+   virtual bool ShouldAutoupgradeMixedContent() { return true; }
+ 
++  virtual bool IsTimezoneChanged() { return false; }
++
+   virtual ~WebContentSettingsClient() = default;
+ };
+ 
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.cc b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.cc
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+@@ -35,6 +35,7 @@
+ #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/platform.h"
++#include "third_party/blink/public/platform/web_content_settings_client.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_speech_synthesis_error_event_init.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_speech_synthesis_event_init.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+@@ -93,9 +94,19 @@ SpeechSynthesis::SpeechSynthesis(LocalDOMWindow& window)
+ void SpeechSynthesis::OnSetVoiceList(
+     Vector<mojom::blink::SpeechSynthesisVoicePtr> mojom_voices) {
+   voice_list_.clear();
+-  for (auto& mojom_voice : mojom_voices) {
+-    voice_list_.push_back(
+-        MakeGarbageCollected<SpeechSynthesisVoice>(std::move(mojom_voice)));
++  bool allowed = !base::FeatureList::IsEnabled(features::kDisableSpeechSynthesisVoiceList);
++  if (allowed) {
++    auto* frame = GetSupplementable()->GetFrame();
++    if (frame) {
++      blink::WebContentSettingsClient* settings = frame->GetContentSettingsClient();
++      if (settings) allowed = !settings->IsTimezoneChanged();
++    }
++  }
++  if (allowed) {
++    for (auto& mojom_voice : mojom_voices) {
++      voice_list_.push_back(
++          MakeGarbageCollected<SpeechSynthesisVoice>(std::move(mojom_voice)));
++    }
+   }
+   VoicesDidChange();
+ }
+--

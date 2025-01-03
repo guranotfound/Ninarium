@@ -1,0 +1,147 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Sat, 21 Sep 2024 14:36:25 +0000
+Subject: Block leakage of urls in sandbox iframes
+
+Preventing url base fallback leakage in cross orgin sandbox iframe.
+Addition of the ""block-url-leakage-sandbox-iframe" flag disabled by default.
+DO NOT ACTIVATE: the patch is a wip
+The aim is to understand whether it is possible to disable the
+leakage of certain information in sandbox iframes
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../browser/renderer_host/render_frame_host_impl.cc | 12 +++++++++++-
+ .../Block-url-leakage-sandbox-iframe.inc            |  8 ++++++++
+ .../Block-url-leakage-sandbox-iframe.inc            |  3 +++
+ .../features_h/Block-url-leakage-sandbox-iframe.inc |  1 +
+ third_party/blink/renderer/core/frame/location.cc   | 13 +++++++++++++
+ .../blink/renderer/core/loader/document_loader.cc   | 12 ++++++++++++
+ .../blink/renderer/core/loader/document_loader.h    |  2 +-
+ 7 files changed, 49 insertions(+), 2 deletions(-)
+ create mode 100644 cromite_flags/chrome/browser/about_flags_cc/Block-url-leakage-sandbox-iframe.inc
+ create mode 100644 cromite_flags/third_party/blink/common/features_cc/Block-url-leakage-sandbox-iframe.inc
+ create mode 100644 cromite_flags/third_party/blink/common/features_h/Block-url-leakage-sandbox-iframe.inc
+
+diff --git a/content/browser/renderer_host/render_frame_host_impl.cc b/content/browser/renderer_host/render_frame_host_impl.cc
+--- a/content/browser/renderer_host/render_frame_host_impl.cc
++++ b/content/browser/renderer_host/render_frame_host_impl.cc
+@@ -4682,7 +4682,17 @@ void RenderFrameHostImpl::SetLastCommittedOrigin(
+ }
+ 
+ void RenderFrameHostImpl::SetInheritedBaseUrl(const GURL& inherited_base_url) {
+-  inherited_base_url_ = inherited_base_url;
++  // we only inherit the base url if there's no sandbox,
++  // or if there is a sandbox but it has 'allow-same-origin'.
++  // See https://github.com/whatwg/html/issues/9025.
++  bool sandbox_flags_dont_exist_or_dont_include_allow_same_origin =
++      base::FeatureList::IsEnabled(blink::features::kBlockUrlLeakageSandboxIframe) &&
++      (!policy_container_host_ ||
++      (active_sandbox_flags() & network::mojom::WebSandboxFlags::kOrigin) ==
++          network::mojom::WebSandboxFlags::kNone);
++  if (sandbox_flags_dont_exist_or_dont_include_allow_same_origin) {
++    inherited_base_url_ = inherited_base_url;
++  }
+ }
+ 
+ void RenderFrameHostImpl::SetLastCommittedOriginForTesting(
+diff --git a/cromite_flags/chrome/browser/about_flags_cc/Block-url-leakage-sandbox-iframe.inc b/cromite_flags/chrome/browser/about_flags_cc/Block-url-leakage-sandbox-iframe.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/chrome/browser/about_flags_cc/Block-url-leakage-sandbox-iframe.inc
+@@ -0,0 +1,8 @@
++#ifdef FLAG_SECTION
++
++    {"block-url-leakage-sandbox-iframe",
++     "Block leakage of urls in sandbox iframes",
++     "Block leakage for referrer, base url and ancestorOrigins in iframe with sandbox.", kOsAll,
++     FEATURE_VALUE_TYPE(blink::features::kBlockUrlLeakageSandboxIframe)},
++
++#endif
+diff --git a/cromite_flags/third_party/blink/common/features_cc/Block-url-leakage-sandbox-iframe.inc b/cromite_flags/third_party/blink/common/features_cc/Block-url-leakage-sandbox-iframe.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/third_party/blink/common/features_cc/Block-url-leakage-sandbox-iframe.inc
+@@ -0,0 +1,3 @@
++CROMITE_FEATURE(kBlockUrlLeakageSandboxIframe,
++                "BlockUrlLeakageSandboxIframe",
++                base::FEATURE_DISABLED_BY_DEFAULT);
+diff --git a/cromite_flags/third_party/blink/common/features_h/Block-url-leakage-sandbox-iframe.inc b/cromite_flags/third_party/blink/common/features_h/Block-url-leakage-sandbox-iframe.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/third_party/blink/common/features_h/Block-url-leakage-sandbox-iframe.inc
+@@ -0,0 +1 @@
++BLINK_COMMON_EXPORT BASE_DECLARE_FEATURE(kBlockUrlLeakageSandboxIframe);
+diff --git a/third_party/blink/renderer/core/frame/location.cc b/third_party/blink/renderer/core/frame/location.cc
+--- a/third_party/blink/renderer/core/frame/location.cc
++++ b/third_party/blink/renderer/core/frame/location.cc
+@@ -28,6 +28,7 @@
+ 
+ #include "third_party/blink/renderer/core/frame/location.h"
+ 
++#include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+@@ -125,8 +126,20 @@ DOMStringList* Location::ancestorOrigins() const {
+   auto* origins = MakeGarbageCollected<DOMStringList>();
+   if (!IsAttached())
+     return origins;
++  if (base::FeatureList::IsEnabled(blink::features::kBlockUrlLeakageSandboxIframe)
++        && dom_window_->GetFrame()->GetSecurityContext()->IsSandboxed(
++              network::mojom::WebSandboxFlags::kOrigin)) {
++    // not allow any value for sandboxed frames
++    return origins;
++  }
+   for (Frame* frame = dom_window_->GetFrame()->Tree().Parent(); frame;
+        frame = frame->Tree().Parent()) {
++    if (base::FeatureList::IsEnabled(blink::features::kBlockUrlLeakageSandboxIframe)
++          && frame->GetSecurityContext()->IsSandboxed(
++                network::mojom::WebSandboxFlags::kOrigin)) {
++      // blocks at first sandbox frame
++      break;
++    }
+     origins->Append(
+         frame->GetSecurityContext()->GetSecurityOrigin()->ToString());
+   }
+diff --git a/third_party/blink/renderer/core/loader/document_loader.cc b/third_party/blink/renderer/core/loader/document_loader.cc
+--- a/third_party/blink/renderer/core/loader/document_loader.cc
++++ b/third_party/blink/renderer/core/loader/document_loader.cc
+@@ -775,6 +775,11 @@ WebString DocumentLoader::HttpMethod() const {
+ }
+ 
+ const AtomicString& DocumentLoader::GetReferrer() const {
++  if (base::FeatureList::IsEnabled(features::kBlockUrlLeakageSandboxIframe)
++      && frame_->DomWindow()->GetSecurityContext().IsSandboxed(
++            network::mojom::WebSandboxFlags::kOrigin)) {
++    return g_null_atom;
++  }
+   return referrer_;
+ }
+ 
+@@ -2840,6 +2845,13 @@ void DocumentLoader::CommitNavigation() {
+         response_.HttpHeaderField(http_names::kDocumentPolicyReportOnly));
+   }
+ 
++  if (base::FeatureList::IsEnabled(features::kBlockUrlLeakageSandboxIframe) &&
++      frame_->DomWindow()->GetSecurityContext().IsSandboxed(
++          network::mojom::WebSandboxFlags::kOrigin)) {
++    // If an frame is sandboxed don't give it an inherited base url.
++    fallback_base_url_ = KURL();
++  }
++
+   navigation_scroll_allowed_ = !frame_->DomWindow()->IsFeatureEnabled(
+       mojom::blink::DocumentPolicyFeature::kForceLoadAtTop);
+ 
+diff --git a/third_party/blink/renderer/core/loader/document_loader.h b/third_party/blink/renderer/core/loader/document_loader.h
+--- a/third_party/blink/renderer/core/loader/document_loader.h
++++ b/third_party/blink/renderer/core/loader/document_loader.h
+@@ -783,7 +783,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
+   // |archive_|, but won't have |loading_main_document_from_mhtml_archive_| set.
+   bool loading_main_document_from_mhtml_archive_ = false;
+   const bool loading_srcdoc_ = false;
+-  const KURL fallback_base_url_;
++  KURL fallback_base_url_; // Non-const for sandbox overrides.
+   const bool loading_url_as_empty_document_ = false;
+   const bool is_static_data_ = false;
+   CommitReason commit_reason_ = CommitReason::kRegular;
+--

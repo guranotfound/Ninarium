@@ -1,0 +1,213 @@
+From: Your Name <you@example.com>
+Date: Wed, 6 Sep 2023 17:55:01 +0000
+Subject: Fix chromium build bugs
+
+because of
+https://bugs.chromium.org/p/chromium/issues/detail?id=1491776#c10
+---
+ BUILD.gn                                           |  1 -
+ chrome/browser/extensions/api/BUILD.gn             |  1 -
+ .../navigation_predictor_metrics_document_data.h   |  2 ++
+ chrome/browser/safe_browsing/BUILD.gn              |  1 +
+ chrome/browser/ui/browser_commands.cc              |  1 +
+ chrome/browser/ui/lens/lens_overlay_controller.cc  |  1 +
+ .../webid/fedcm_account_selection_view_desktop.cc  |  1 +
+ .../ui/webui/searchbox/searchbox_handler.cc        |  1 +
+ .../component_updater/installer_policies/BUILD.gn  |  1 +
+ .../omnibox/browser/autocomplete_classifier.cc     |  4 ++--
+ components/omnibox/browser/omnibox_field_trial.cc  |  4 ++--
+ components/plus_addresses/BUILD.gn                 |  1 +
+ .../phishing_classifier/phishing_image_embedder.cc | 14 +++-----------
+ content/browser/browser_interface_binders.cc       |  1 +
+ net/BUILD.gn                                       |  1 +
+ 15 files changed, 18 insertions(+), 17 deletions(-)
+
+diff --git a/BUILD.gn b/BUILD.gn
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -423,7 +423,6 @@ group("gn_all") {
+           "//android_webview:empty_group",
+           "//android_webview/test",
+           "//android_webview/tools/automated_ui_tests:webview_ui_test_app_test_apk",
+-          "//android_webview/tools/captured_sites_tests:captured_sites_test_app",
+           "//android_webview/tools/sdk_sandbox",
+           "//android_webview/tools/system_webview_shell",
+           "//chrome/android:chrome_junit_tests",
+diff --git a/chrome/browser/extensions/api/BUILD.gn b/chrome/browser/extensions/api/BUILD.gn
+--- a/chrome/browser/extensions/api/BUILD.gn
++++ b/chrome/browser/extensions/api/BUILD.gn
+@@ -36,7 +36,6 @@ group("api_implementations") {
+     "//chrome/browser/extensions/api/experimental_ai_data",
+     "//chrome/browser/extensions/api/font_settings",
+     "//chrome/browser/extensions/api/idltest",
+-    "//chrome/browser/extensions/api/mdns",
+     "//chrome/browser/extensions/api/module",
+     "//chrome/browser/extensions/api/networking_private",
+     "//chrome/browser/extensions/api/omnibox",
+diff --git a/chrome/browser/navigation_predictor/navigation_predictor_metrics_document_data.h b/chrome/browser/navigation_predictor/navigation_predictor_metrics_document_data.h
+--- a/chrome/browser/navigation_predictor/navigation_predictor_metrics_document_data.h
++++ b/chrome/browser/navigation_predictor/navigation_predictor_metrics_document_data.h
+@@ -69,6 +69,8 @@ class NavigationPredictorMetricsDocumentData
+     UserInteractionsData(const UserInteractionsData&);
+     UserInteractionsData& operator=(const UserInteractionsData&);
+ 
++    UserInteractionsData& operator=(UserInteractionsData&&) noexcept = default;
++
+     // True if the anchor element is still in viewport, otherwise false.
+     bool is_in_viewport = false;
+     // True if the pointer is still hovering over the anchor element,
+diff --git a/chrome/browser/safe_browsing/BUILD.gn b/chrome/browser/safe_browsing/BUILD.gn
+--- a/chrome/browser/safe_browsing/BUILD.gn
++++ b/chrome/browser/safe_browsing/BUILD.gn
+@@ -207,6 +207,7 @@ static_library("safe_browsing") {
+       "//components/webdata/common",
+       "//content/public/browser",
+       "//services/preferences/public/mojom:mojom",
++      "//third_party/flatbuffers:flatbuffers",
+     ]
+ 
+     allow_circular_includes_from += [ "//chrome/browser/ui/safety_hub" ]
+diff --git a/chrome/browser/ui/browser_commands.cc b/chrome/browser/ui/browser_commands.cc
+--- a/chrome/browser/ui/browser_commands.cc
++++ b/chrome/browser/ui/browser_commands.cc
+@@ -5,6 +5,7 @@
+ #include "chrome/browser/ui/browser_commands.h"
+ 
+ #include <memory>
++#include <numeric>
+ #include <optional>
+ #include <utility>
+ #include <vector>
+diff --git a/chrome/browser/ui/lens/lens_overlay_controller.cc b/chrome/browser/ui/lens/lens_overlay_controller.cc
+--- a/chrome/browser/ui/lens/lens_overlay_controller.cc
++++ b/chrome/browser/ui/lens/lens_overlay_controller.cc
+@@ -14,6 +14,7 @@
+ #include "base/system/sys_info.h"
+ #include "base/task/bind_post_task.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "base/task/thread_pool.h"
+ #include "chrome/browser/feedback/show_feedback_page.h"
+ #include "chrome/browser/lens/core/mojom/geometry.mojom.h"
+ #include "chrome/browser/lens/core/mojom/overlay_object.mojom.h"
+diff --git a/chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc b/chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc
+--- a/chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc
++++ b/chrome/browser/ui/views/webid/fedcm_account_selection_view_desktop.cc
+@@ -8,6 +8,7 @@
+ #include "base/functional/bind.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
++#include "base/metrics/histogram_functions.h"
+ #include "chrome/browser/accessibility/accessibility_state_utils.h"
+ #include "chrome/browser/net/system_network_context_manager.h"
+ #include "chrome/browser/ui/browser_finder.h"
+diff --git a/chrome/browser/ui/webui/searchbox/searchbox_handler.cc b/chrome/browser/ui/webui/searchbox/searchbox_handler.cc
+--- a/chrome/browser/ui/webui/searchbox/searchbox_handler.cc
++++ b/chrome/browser/ui/webui/searchbox/searchbox_handler.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "base/base64.h"
+ #include "base/base64url.h"
++#include "base/containers/contains.h"
+ #include "build/branding_buildflags.h"
+ #include "chrome/browser/bookmarks/bookmark_model_factory.h"
+ #include "chrome/browser/browser_process.h"
+diff --git a/components/component_updater/installer_policies/BUILD.gn b/components/component_updater/installer_policies/BUILD.gn
+--- a/components/component_updater/installer_policies/BUILD.gn
++++ b/components/component_updater/installer_policies/BUILD.gn
+@@ -45,6 +45,7 @@ static_library("installer_policies_no_content_deps") {
+     "//components/update_client",
+     "//mojo/public/cpp/base:protobuf_support",
+     "//services/network/public/cpp",
++    "//third_party/re2",
+   ]
+ 
+   # Disallow depending on content.
+diff --git a/components/omnibox/browser/autocomplete_classifier.cc b/components/omnibox/browser/autocomplete_classifier.cc
+--- a/components/omnibox/browser/autocomplete_classifier.cc
++++ b/components/omnibox/browser/autocomplete_classifier.cc
+@@ -96,8 +96,8 @@ void AutocompleteClassifier::Classify(
+     metrics::OmniboxEventProto::PageClassification page_classification,
+     AutocompleteMatch* match,
+     GURL* alternate_nav_url) {
+-  TRACE_EVENT1("omnibox", "AutocompleteClassifier::Classify", "text",
+-               base::UTF16ToUTF8(text));
++  // TRACE_EVENT1("omnibox", "AutocompleteClassifier::Classify", "text",
++  //              base::UTF16ToUTF8(text));
+   DCHECK(!inside_classify_);
+   base::AutoReset<bool> reset(&inside_classify_, true);
+   AutocompleteInput input(text, page_classification, *scheme_classifier_);
+diff --git a/components/omnibox/browser/omnibox_field_trial.cc b/components/omnibox/browser/omnibox_field_trial.cc
+--- a/components/omnibox/browser/omnibox_field_trial.cc
++++ b/components/omnibox/browser/omnibox_field_trial.cc
+@@ -1010,11 +1010,11 @@ MLConfig& MLConfig::operator=(const MLConfig& other) = default;
+ 
+ ScopedMLConfigForTesting::ScopedMLConfigForTesting()
+     : original_config_(std::make_unique<MLConfig>(GetMLConfig())) {
+-  GetMLConfigInternal() = {};
++  //GetMLConfigInternal() = {};
+ }
+ 
+ ScopedMLConfigForTesting::~ScopedMLConfigForTesting() {
+-  GetMLConfigInternal() = *original_config_;
++  //GetMLConfigInternal() = *original_config_;
+ }
+ 
+ MLConfig& ScopedMLConfigForTesting::GetMLConfig() {
+diff --git a/components/plus_addresses/BUILD.gn b/components/plus_addresses/BUILD.gn
+--- a/components/plus_addresses/BUILD.gn
++++ b/components/plus_addresses/BUILD.gn
+@@ -112,6 +112,7 @@ source_set("plus_addresses") {
+     "//services/data_decoder/public/cpp",
+     "//services/network/public/cpp",
+     "//ui/base",
++    "//third_party/re2",
+   ]
+   public_deps = [
+     # While not strictly public by h file inclusion, this is a temporary move
+diff --git a/components/safe_browsing/content/renderer/phishing_classifier/phishing_image_embedder.cc b/components/safe_browsing/content/renderer/phishing_classifier/phishing_image_embedder.cc
+--- a/components/safe_browsing/content/renderer/phishing_classifier/phishing_image_embedder.cc
++++ b/components/safe_browsing/content/renderer/phishing_classifier/phishing_image_embedder.cc
+@@ -53,17 +53,9 @@ void PhishingImageEmbedder::BeginImageEmbedding(DoneCallback done_callback) {
+ 
+ void PhishingImageEmbedder::OnPlaybackDone(std::unique_ptr<SkBitmap> bitmap) {
+ #if BUILDFLAG(BUILD_WITH_TFLITE_LIB)
+-  if (bitmap) {
+-    bitmap_ = std::move(bitmap);
+-    ScorerStorage::GetInstance()
+-        ->GetScorer()
+-        ->ApplyVisualTfLiteModelImageEmbedding(
+-            *bitmap_,
+-            base::BindOnce(&PhishingImageEmbedder::OnImageEmbeddingDone,
+-                           weak_factory_.GetWeakPtr()));
+-  } else {
+-    RunFailureCallback();
+-  }
++  // (UAZO) removed due error:
++  // no member named 'ApplyVisualTfLiteModelImageEmbedding' in 'safe_browsing::Scorer'
++  RunFailureCallback();
+ #else
+   RunFailureCallback();
+ #endif
+diff --git a/content/browser/browser_interface_binders.cc b/content/browser/browser_interface_binders.cc
+--- a/content/browser/browser_interface_binders.cc
++++ b/content/browser/browser_interface_binders.cc
+@@ -363,6 +363,7 @@ void BindDateTimeChooserForFrame(
+ void BindTextSuggestionHostForFrame(
+     RenderFrameHost* host,
+     mojo::PendingReceiver<blink::mojom::TextSuggestionHost> receiver) {
++  if ((true)) return;
+   auto* view =
+       RenderWidgetHostViewAndroid::FromRenderWidgetHostView(host->GetView());
+   if (!view || !view->text_suggestion_host())
+diff --git a/net/BUILD.gn b/net/BUILD.gn
+--- a/net/BUILD.gn
++++ b/net/BUILD.gn
+@@ -1722,6 +1722,7 @@ component("net") {
+   if (!is_cronet_build) {
+     deps += [ "//mojo/public/cpp/bindings:default_construct_tag" ]
+   }
++  # test: configs -= [ "//build/config/clang:find_bad_constructs" ]
+ }
+ 
+ # net_export.h has its own build target so that code (eg
+--

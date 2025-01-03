@@ -1,0 +1,25 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Thu, 18 Apr 2024 07:01:52 +0000
+Subject: Never treat Proguard warnings as errors
+
+---
+ build/config/android/internal_rules.gni | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/build/config/android/internal_rules.gni b/build/config/android/internal_rules.gni
+--- a/build/config/android/internal_rules.gni
++++ b/build/config/android/internal_rules.gni
+@@ -1281,9 +1281,9 @@ if (enable_java_templates) {
+       _source_file_template,
+       "--proguard-configs=@FileArg($_rebased_build_config:deps_info:proguard_all_configs)",
+     ]
+-    if (treat_warnings_as_errors) {
+-      _args += [ "--warnings-as-errors" ]
+-    }
++    # if (treat_warnings_as_errors) {
++    #   _args += [ "--warnings-as-errors" ]
++    # }
+ 
+     if ((!defined(invoker.proguard_enable_obfuscation) ||
+          invoker.proguard_enable_obfuscation) && enable_proguard_obfuscation) {
+--

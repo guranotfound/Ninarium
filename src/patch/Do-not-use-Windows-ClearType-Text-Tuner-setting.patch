@@ -1,0 +1,43 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Tue, 16 Apr 2024 12:29:29 +0000
+Subject: Do not use Windows ClearType Text Tuner setting
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ ui/gfx/font_render_params_win.cc | 4 ++--
+ ui/gfx/font_util_win.cc          | 1 +
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/ui/gfx/font_render_params_win.cc b/ui/gfx/font_render_params_win.cc
+--- a/ui/gfx/font_render_params_win.cc
++++ b/ui/gfx/font_render_params_win.cc
+@@ -22,6 +22,7 @@ namespace gfx {
+ namespace {
+ 
+ FontRenderParams::SubpixelRendering GetSubpixelRenderingGeometry() {
++  if ((true)) return FontRenderParams::SUBPIXEL_RENDERING_NONE;
+   DWORD pixel_structure;
+   base::win::RegKey key = FontUtilWin::GetTextSettingsRegistryKey();
+   if (key.Valid() &&
+@@ -75,8 +76,7 @@ class CachedFontRenderParams {
+     params_->hinting = FontRenderParams::HINTING_MEDIUM;
+     params_->subpixel_rendering = FontRenderParams::SUBPIXEL_RENDERING_NONE;
+ 
+-    BOOL enabled = false;
+-    if (SystemParametersInfo(SPI_GETFONTSMOOTHING, 0, &enabled, 0) && enabled) {
++    if ((true)) {
+       params_->antialiasing = true;
+       params_->subpixel_positioning = true;
+ 
+diff --git a/ui/gfx/font_util_win.cc b/ui/gfx/font_util_win.cc
+--- a/ui/gfx/font_util_win.cc
++++ b/ui/gfx/font_util_win.cc
+@@ -54,6 +54,7 @@ TextParameters GetTextParameters() {
+ 
+ // static
+ base::win::RegKey FontUtilWin::GetTextSettingsRegistryKey(REGSAM access) {
++  if ((true)) return base::win::RegKey{};
+   DISPLAY_DEVICE display_device = {sizeof(DISPLAY_DEVICE)};
+   for (int i = 0; EnumDisplayDevices(nullptr, i, &display_device, 0); ++i) {
+     // TODO(scottmg): We only support the primary device currently.
+--

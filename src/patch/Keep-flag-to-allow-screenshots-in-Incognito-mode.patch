@@ -1,0 +1,44 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sat, 9 May 2020 08:33:15 +0200
+Subject: Keep flag to allow screenshots in Incognito mode
+
+See also:
+* https://github.com/bromite/bromite/issues/551
+* https://github.com/bromite/bromite/issues/1816
+* https://bugs.chromium.org/p/chromium/issues/detail?id=920762
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../browser/incognito/IncognitoSnapshotController.java      | 2 +-
+ chrome/browser/flag-metadata.json                           | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/incognito/IncognitoSnapshotController.java b/chrome/android/java/src/org/chromium/chrome/browser/incognito/IncognitoSnapshotController.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/incognito/IncognitoSnapshotController.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/incognito/IncognitoSnapshotController.java
+@@ -48,7 +48,7 @@ public abstract class IncognitoSnapshotController {
+         boolean expectedSecureState = mIsShowingIncognitoSupplier.get();
+         if (ChromeFeatureList.sIncognitoScreenshot.isEnabled()) {
+             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+-                mActivity.setRecentsScreenshotEnabled(!expectedSecureState);
++                mActivity.setRecentsScreenshotEnabled(true);
+             }
+             expectedSecureState = false;
+         }
+diff --git a/chrome/browser/flag-metadata.json b/chrome/browser/flag-metadata.json
+--- a/chrome/browser/flag-metadata.json
++++ b/chrome/browser/flag-metadata.json
+@@ -5343,9 +5343,9 @@
+     "expiry_milestone": 120
+   },
+   {
+-    "name": "incognito-screenshot",
+-    "owners": [ "zalmashni@google.com", "sideyilmaz@chromium.org", "chrome-incognito@google.com" ],
+-    "expiry_milestone": 140
++    "name": "incognito-screenshot", // Bromite: guard this feature flag
++    "owners": [ "zalmashni@google.com", "sideyilmaz@chromium.org", "chrome-incognito@google.com" ],  // -
++    "expiry_milestone": -1          // -
+   },
+   {
+     "name": "increment-local-surface-id-for-mainframe-same-doc-navigation",
+--

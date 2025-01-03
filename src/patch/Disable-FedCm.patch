@@ -1,0 +1,38 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Tue, 14 Feb 2023 16:26:17 +0000
+Subject: Disable FedCm
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../content/public/common/content_features_cc/Disable-FedCm.inc | 1 +
+ .../third_party/blink/common/features_cc/Disable-FedCm.inc      | 1 +
+ .../blink/renderer/platform/runtime_enabled_features.json5      | 2 +-
+ 3 files changed, 3 insertions(+), 1 deletion(-)
+ create mode 100644 cromite_flags/content/public/common/content_features_cc/Disable-FedCm.inc
+ create mode 100644 cromite_flags/third_party/blink/common/features_cc/Disable-FedCm.inc
+
+diff --git a/cromite_flags/content/public/common/content_features_cc/Disable-FedCm.inc b/cromite_flags/content/public/common/content_features_cc/Disable-FedCm.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/content/public/common/content_features_cc/Disable-FedCm.inc
+@@ -0,0 +1 @@
++SET_CROMITE_FEATURE_DISABLED(kFedCm);
+diff --git a/cromite_flags/third_party/blink/common/features_cc/Disable-FedCm.inc b/cromite_flags/third_party/blink/common/features_cc/Disable-FedCm.inc
+new file mode 100644
+--- /dev/null
++++ b/cromite_flags/third_party/blink/common/features_cc/Disable-FedCm.inc
+@@ -0,0 +1 @@
++SET_CROMITE_FEATURE_DISABLED(kFedCmWithStorageAccessAPI);
+diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+--- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
++++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+@@ -1782,7 +1782,7 @@
+     {
+       name: "FedCm",
+       public: true,
+-      status: "stable",
++      status: "test",
+       base_feature: "none",
+     },
+     {
+--

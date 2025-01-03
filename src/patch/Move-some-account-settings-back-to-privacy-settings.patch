@@ -1,0 +1,123 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Sun, 4 Oct 2020 12:58:17 +0200
+Subject: Move some account settings back to privacy settings
+
+Search suggestions, autofill assistant and contextual search
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../java/res/xml/privacy_preferences.xml      | 13 +++++++
+ .../privacy/settings/PrivacySettings.java     | 34 +++++++++++++++++++
+ .../strings/android_chrome_strings.grd        |  4 +++
+ 3 files changed, 51 insertions(+)
+
+diff --git a/chrome/android/java/res/xml/privacy_preferences.xml b/chrome/android/java/res/xml/privacy_preferences.xml
+--- a/chrome/android/java/res/xml/privacy_preferences.xml
++++ b/chrome/android/java/res/xml/privacy_preferences.xml
+@@ -86,6 +86,19 @@ found in the LICENSE file.
+         android:key="secure_dns"
+         android:title="@string/settings_secure_dns_title"
+         android:fragment="org.chromium.chrome.browser.privacy.secure_dns.SecureDnsSettings" />
++    <PreferenceCategory
++        android:key="services_category"
++        android:title="@string/services_category_title">
++      <org.chromium.components.browser_ui.settings.ChromeSwitchPreference
++          android:key="search_suggestions"
++          android:title="@string/improve_search_suggestions_title"
++          android:summary="@string/improve_search_suggestions_summary"
++          android:persistent="false"/>
++      <org.chromium.components.browser_ui.settings.ChromeBasePreference
++          android:key="contextual_search"
++          android:title="@string/contextual_search_title"
++          android:fragment="org.chromium.chrome.browser.contextualsearch.ContextualSearchSettingsFragment"/>
++    </PreferenceCategory>
+     <Preference
+         android:key="phone_as_a_security_key"
+         android:title="@string/cablev2_paask_title"
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/privacy/settings/PrivacySettings.java b/chrome/android/java/src/org/chromium/chrome/browser/privacy/settings/PrivacySettings.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/privacy/settings/PrivacySettings.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/privacy/settings/PrivacySettings.java
+@@ -53,6 +53,14 @@ import org.chromium.components.signin.identitymanager.ConsentLevel;
+ import org.chromium.components.user_prefs.UserPrefs;
+ import org.chromium.ui.text.SpanApplier;
+ 
++import androidx.annotation.Nullable;
++import androidx.preference.PreferenceCategory;
++import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
++import org.chromium.base.shared_preferences.SharedPreferencesManager;
++import org.chromium.chrome.browser.preferences.ChromeSharedPreferences;
++import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
++import org.chromium.components.browser_ui.settings.ManagedPreferenceDelegate;
++
+ /** Fragment to keep track of the all the privacy related preferences. */
+ public class PrivacySettings extends ChromeBaseSettingsFragment
+         implements Preference.OnPreferenceChangeListener {
+@@ -68,6 +76,16 @@ public class PrivacySettings extends ChromeBaseSettingsFragment
+     private static final String PREF_INCOGNITO_LOCK = "incognito_lock";
+     @VisibleForTesting static final String PREF_CLEAR_BROWSING_DATA = "clear_browsing_data";
+     @VisibleForTesting static final String PREF_DO_NOT_TRACK = "do_not_track";
++    // moved from SyncAndServicesSettings.java
++    private static final String PREF_SERVICES_CATEGORY = "services_category";
++    private static final String PREF_SEARCH_SUGGESTIONS = "search_suggestions";
++    private static final String PREF_CONTEXTUAL_SEARCH = "contextual_search";
++    private ChromeSwitchPreference mSearchSuggestions;
++    private @Nullable Preference mContextualSearch;
++    private final SharedPreferencesManager mSharedPreferencesManager =
++            ChromeSharedPreferences.getInstance();
++
++    private ManagedPreferenceDelegate mManagedPreferenceDelegate;
+     @VisibleForTesting static final String PREF_FP_PROTECTION = "fp_protection";
+     @VisibleForTesting static final String PREF_IP_PROTECTION = "ip_protection";
+     @VisibleForTesting static final String PREF_THIRD_PARTY_COOKIES = "third_party_cookies";
+@@ -159,6 +177,16 @@ public class PrivacySettings extends ChromeBaseSettingsFragment
+ 
+         setHasOptionsMenu(true);
+ 
++        mSearchSuggestions = (ChromeSwitchPreference) findPreference(PREF_SEARCH_SUGGESTIONS);
++        mSearchSuggestions.setOnPreferenceChangeListener(this);
++        mSearchSuggestions.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
++
++        mContextualSearch = findPreference(PREF_CONTEXTUAL_SEARCH);
++        boolean isContextualSearchEnabled =
++                !ContextualSearchManager.isContextualSearchDisabled(getProfile());
++        mContextualSearch.setSummary(
++                isContextualSearchEnabled ? R.string.text_on : R.string.text_off);
++
+         ChromeSwitchPreference canMakePaymentPref =
+                 (ChromeSwitchPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
+         canMakePaymentPref.setOnPreferenceChangeListener(this);
+@@ -301,6 +329,9 @@ public class PrivacySettings extends ChromeBaseSettingsFragment
+         } else if (PREF_HTTPS_FIRST_MODE.equals(key)) {
+             UserPrefs.get(getProfile())
+                     .setBoolean(Pref.HTTPS_ONLY_MODE_ENABLED, (boolean) newValue);
++        } else if (PREF_SEARCH_SUGGESTIONS.equals(key)) {
++            UserPrefs.get(getProfile())
++                    .setBoolean(Pref.SEARCH_SUGGEST_ENABLED, (boolean) newValue);
+         }
+         return true;
+     }
+@@ -313,6 +344,9 @@ public class PrivacySettings extends ChromeBaseSettingsFragment
+ 
+     /** Updates the preferences. */
+     public void updatePreferences() {
++        mSearchSuggestions.setChecked(
++            UserPrefs.get(getProfile()).getBoolean(Pref.SEARCH_SUGGEST_ENABLED));
++
+         ChromeSwitchPreference canMakePaymentPref =
+                 (ChromeSwitchPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
+         if (canMakePaymentPref != null) {
+diff --git a/chrome/browser/ui/android/strings/android_chrome_strings.grd b/chrome/browser/ui/android/strings/android_chrome_strings.grd
+--- a/chrome/browser/ui/android/strings/android_chrome_strings.grd
++++ b/chrome/browser/ui/android/strings/android_chrome_strings.grd
+@@ -451,6 +451,10 @@ For more settings that use data to improve your Chrome experience, go to <ph nam
+         Automatically sends usage statistics and crash reports to Google
+       </message>
+ 
++      <message name="IDS_SERVICES_CATEGORY_TITLE" desc="Title for the group of preferences that control non-personalized Google services. This group contains preferences for data that is not tied to user's Google Account.">
++        Other services
++      </message>
++
+       <!-- Search engine settings -->
+       <message name="IDS_SEARCH_ENGINE_SETTINGS" desc="Title for Search Engine settings. [CHAR_LIMIT=32]">
+         Search engine
+--

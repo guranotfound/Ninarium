@@ -1,0 +1,94 @@
+From: csagan5 <32685696+csagan5@users.noreply.github.com>
+Date: Thu, 19 Dec 2019 22:52:53 +0100
+Subject: Disable feeds support by default
+
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../browser/feed/android/web_feed_bridge.cc   | 28 +++----------------
+ .../feed/core/shared_prefs/pref_names.cc      |  2 +-
+ components/feed/feed_feature_list.cc          |  3 ++
+ 3 files changed, 8 insertions(+), 25 deletions(-)
+
+diff --git a/chrome/browser/feed/android/web_feed_bridge.cc b/chrome/browser/feed/android/web_feed_bridge.cc
+--- a/chrome/browser/feed/android/web_feed_bridge.cc
++++ b/chrome/browser/feed/android/web_feed_bridge.cc
+@@ -81,10 +81,7 @@ base::android::ScopedJavaLocalRef<jbyteArray> ToJavaWebFeedId(
+ }
+ 
+ WebFeedSubscriptions* GetSubscriptions() {
+-  Profile* profile = ProfileManager::GetLastUsedProfile();
+-  if (!profile)
+-    return nullptr;
+-  return GetSubscriptionsForProfile(profile);
++  return nullptr;
+ }
+ 
+ FeedApi* GetStream() {
+@@ -220,10 +217,7 @@ static void JNI_WebFeedBridge_FollowWebFeed(
+     return;
+   }
+ 
+-  FollowWebFeed(
+-      page_info.web_contents,
+-      static_cast<feedwire::webfeed::WebFeedChangeReason>(change_reason),
+-      std::move(callback));
++  std::move(callback).Run({});
+ }
+ 
+ static jboolean JNI_WebFeedBridge_IsCormorantEnabledForLocale(JNIEnv* env) {
+@@ -264,11 +258,7 @@ static void JNI_WebFeedBridge_UnfollowWebFeed(
+   auto callback =
+       AdaptCallbackForJava<WebFeedSubscriptions::UnfollowWebFeedResult>(
+           env, j_callback);
+-  UnfollowWebFeed(
+-      ToNativeWebFeedId(env, webFeedId),
+-      /*is_durable_request=*/is_durable,
+-      static_cast<feedwire::webfeed::WebFeedChangeReason>(change_reason),
+-      std::move(callback));
++  std::move(callback).Run({});
+ }
+ 
+ static void JNI_WebFeedBridge_FindWebFeedInfoForPage(
+@@ -279,17 +269,7 @@ static void JNI_WebFeedBridge_FindWebFeedInfoForPage(
+   base::OnceCallback<void(WebFeedMetadata)> callback =
+       AdaptCallbackForJava<WebFeedMetadata>(env, j_callback);
+ 
+-  PageInformation page_info = ToNativePageInformation(env, pageInfo);
+-  // Make sure web_contents is not NULL since the user might navigate away from
+-  // the current tab that is requested to find info.
+-  if (!page_info.web_contents) {
+-    std::move(callback).Run({});
+-    return;
+-  }
+-  FindWebFeedInfoForPage(
+-      page_info.web_contents,
+-      static_cast<WebFeedPageInformationRequestReason>(reason),
+-      std::move(callback));
++  std::move(callback).Run({});
+ }
+ 
+ static void JNI_WebFeedBridge_FindWebFeedInfoForWebFeedId(
+diff --git a/components/feed/core/shared_prefs/pref_names.cc b/components/feed/core/shared_prefs/pref_names.cc
+--- a/components/feed/core/shared_prefs/pref_names.cc
++++ b/components/feed/core/shared_prefs/pref_names.cc
+@@ -26,7 +26,7 @@ const char kEnableSnippetsByDse[] = "ntp_snippets_by_dse.enable";
+ void RegisterFeedSharedProfilePrefs(PrefRegistrySimple* registry) {
+   registry->RegisterBooleanPref(kEnableSnippets, false);
+   registry->RegisterBooleanPref(kArticlesListVisible, false);
+-  registry->RegisterBooleanPref(kEnableSnippetsByDse, true);
++  registry->RegisterBooleanPref(kEnableSnippetsByDse, false);
+ }
+ 
+ }  // namespace prefs
+diff --git a/components/feed/feed_feature_list.cc b/components/feed/feed_feature_list.cc
+--- a/components/feed/feed_feature_list.cc
++++ b/components/feed/feed_feature_list.cc
+@@ -140,4 +140,7 @@ bool IsWebFeedEnabledForLocale(const std::string& country) {
+          !base::FeatureList::IsEnabled(kWebFeedKillSwitch);
+ }
+ 
++SET_CROMITE_FEATURE_DISABLED(kInterestFeedV2);
++SET_CROMITE_FEATURE_ENABLED(kWebFeedKillSwitch);
++
+ }  // namespace feed
+--

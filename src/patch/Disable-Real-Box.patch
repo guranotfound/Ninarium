@@ -1,0 +1,77 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Sun, 5 Nov 2023 17:59:54 +0000
+Subject: Disable Real Box
+
+Real-box is search box in ntp
+---
+ chrome/browser/prefs/browser_prefs.cc                  | 2 +-
+ chrome/browser/resources/new_tab_page/app.html         | 8 --------
+ chrome/browser/ui/webui/searchbox/searchbox_handler.cc | 1 +
+ components/search/ntp_features.cc                      | 6 +++---
+ 4 files changed, 5 insertions(+), 12 deletions(-)
+
+diff --git a/chrome/browser/prefs/browser_prefs.cc b/chrome/browser/prefs/browser_prefs.cc
+--- a/chrome/browser/prefs/browser_prefs.cc
++++ b/chrome/browser/prefs/browser_prefs.cc
+@@ -2327,7 +2327,7 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry,
+   registry->RegisterBooleanPref(
+       prefs::kLensRegionSearchEnabled, true,
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+-  registry->RegisterBooleanPref(prefs::kLensDesktopNTPSearchEnabled, true);
++  registry->RegisterBooleanPref(prefs::kLensDesktopNTPSearchEnabled, false);
+ #endif
+ 
+ #if !BUILDFLAG(IS_ANDROID)
+diff --git a/chrome/browser/resources/new_tab_page/app.html b/chrome/browser/resources/new_tab_page/app.html
+--- a/chrome/browser/resources/new_tab_page/app.html
++++ b/chrome/browser/resources/new_tab_page/app.html
+@@ -16,14 +16,6 @@
+       ?hidden="${!this.logoEnabled_}">
+   </ntp-logo>
+   <div id="searchboxContainer">
+-    <cr-searchbox id="searchbox" ?is-dark="${this.isThemeDark_()}"
+-        ?color-source-is-baseline="${this.colorSourceIsBaseline}"
+-        @open-lens-search="${this.onOpenLensSearch_}"
+-        @open-voice-search="${this.onOpenVoiceSearch_}" ?shown="${this.realboxShown_}"
+-        ?had-secondary-side="${this.realboxHadSecondarySide}"
+-        @had-secondary-side-changed="${this.onRealboxHadSecondarySideChanged_}"
+-        ?can-show-secondary-side="${this.realboxCanShowSecondarySide}">
+-    </cr-searchbox>
+     ${this.showLensUploadDialog_ ? html`
+       <ntp-lens-upload-dialog id="lensUploadDialog"
+           @close-lens-search="${this.onCloseLensSearch_}">
+diff --git a/chrome/browser/ui/webui/searchbox/searchbox_handler.cc b/chrome/browser/ui/webui/searchbox/searchbox_handler.cc
+--- a/chrome/browser/ui/webui/searchbox/searchbox_handler.cc
++++ b/chrome/browser/ui/webui/searchbox/searchbox_handler.cc
+@@ -459,6 +459,7 @@ void SearchboxHandler::SetupWebUIDataSource(content::WebUIDataSource* source,
+                                             Profile* profile,
+                                             bool enable_voice_search,
+                                             bool enable_lens_search) {
++  enable_lens_search = false;
+   // Embedders which are served from chrome-untrusted:// URLs should override
+   // this to false. The chrome.timeTicks capability that the metrics reporter
+   // depends on is not defined in chrome-untrusted environments and attempting
+diff --git a/components/search/ntp_features.cc b/components/search/ntp_features.cc
+--- a/components/search/ntp_features.cc
++++ b/components/search/ntp_features.cc
+@@ -118,7 +118,7 @@ BASE_FEATURE(kNtpDriveModuleShowSixFiles,
+ 
+ // If enabled, logo will be shown.
+ // This is a kill switch. Keep indefinitely.
+-BASE_FEATURE(kNtpLogo, "NtpLogo", base::FEATURE_ENABLED_BY_DEFAULT);
++BASE_FEATURE(kNtpLogo, "NtpLogo", base::FEATURE_DISABLED_BY_DEFAULT);
+ 
+ // If enabled, middle slot promo will be shown.
+ // This is a kill switch. Keep indefinitely.
+@@ -186,8 +186,8 @@ BASE_FEATURE(kNtpModulesRedesigned,
+ // If enabled, OneGoogleBar will be shown.
+ // This is a kill switch. Keep indefinitely.
+ BASE_FEATURE(kNtpOneGoogleBar,
+-             "NtpOneGoogleBar",
+-             base::FEATURE_ENABLED_BY_DEFAULT);
++             "NtpOneGoogleBar",                   // disabled
++             base::FEATURE_DISABLED_BY_DEFAULT);  // by default
+ 
+ // If enabled, outlook calendar module will be shown.
+ BASE_FEATURE(kNtpOutlookCalendarModule,
+--
