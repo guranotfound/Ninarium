@@ -6,7 +6,7 @@
 #
 # Chrome Application dir entries, sorted alphabetically.
 #
-ninarium.exe: %(ChromeDir)s\
+chrome.exe: %(ChromeDir)s\
 chrome_proxy.exe: %(ChromeDir)s\
 #
 # Chrome version dir assembly manifest.
@@ -31,7 +31,6 @@ eventlog_provider.dll: %(VersionDir)s\
 icudtl.dat: %(VersionDir)s\
 libEGL.dll: %(VersionDir)s\
 libGLESv2.dll: %(VersionDir)s\
-mojo_core.dll: %(VersionDir)s\
 notification_helper.exe: %(VersionDir)s\
 optimization_guide_internal.dll: %(VersionDir)s\
 resources.pak: %(VersionDir)s\
@@ -40,6 +39,7 @@ vk_swiftshader.dll: %(VersionDir)s\
 vk_swiftshader_icd.json: %(VersionDir)s\
 vulkan-1.dll: %(VersionDir)s\
 v8_context_snapshot.bin: %(VersionDir)s\
+#
 # Sub directories living in the version dir
 #
 Extensions\*.*: %(VersionDir)s\Extensions\
@@ -66,6 +66,7 @@ WidevineCdm\_platform_specific\win_x64\widevinecdm.dll.sig: %(VersionDir)s\Widev
 WidevineCdm\_platform_specific\win_arm64\widevinecdm.dll: %(VersionDir)s\WidevineCdm\_platform_specific\win_arm64\
 WidevineCdm\_platform_specific\win_arm64\widevinecdm.dll.sig: %(VersionDir)s\WidevineCdm\_platform_specific\win_arm64\
 
+
 #
 # VisualElements sub-dir.
 #
@@ -74,6 +75,12 @@ WidevineCdm\_platform_specific\win_arm64\widevinecdm.dll.sig: %(VersionDir)s\Wid
 # %(VersionDir)\VisualElements.
 Logo.png: %(VersionDir)s\VisualElements\
 SmallLogo.png: %(VersionDir)s\VisualElements\
+
+#
+# Privacy Sandbox Attestation
+#
+PrivacySandboxAttestationsPreloaded\manifest.json: %(VersionDir)s\PrivacySandboxAttestationsPreloaded\
+PrivacySandboxAttestationsPreloaded\privacy-sandbox-attestations.dat: %(VersionDir)s\PrivacySandboxAttestationsPreloaded\
 
 #
 # MEI Preload sub dir
@@ -90,8 +97,9 @@ ffmpeg.dll: %(VersionDir)s\
 [TOUCH]
 
 [GOOGLE_CHROME]
-# The elevation service is only installed for Google Chrome builds.
+elevated_tracing_service.exe: %(VersionDir)s\
 elevation_service.exe: %(VersionDir)s\
+os_update_handler.exe: %(VersionDir)s\
 
 #
 # Sub directories living in the version dir

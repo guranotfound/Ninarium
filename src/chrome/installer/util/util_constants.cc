@@ -76,9 +76,6 @@ const char kForceConfigureUserSettings[] = "force-configure-user-settings";
 // confirmation from user.
 const char kForceUninstall[] = "force-uninstall";
 
-// See description for kPatch.
-const char kInputFile[] = "input-file";
-
 // Specify the path to the Chrome archive for install. If not specified,
 // chrome.packed.7z or chrome.7z in the same directory as setup.exe
 // is used.
@@ -117,14 +114,6 @@ const char kNonce[] = "nonce";
 
 // Notify the installer that the OS has been upgraded.
 const char kOnOsUpgrade[] = "on-os-upgrade";
-
-// Applies a binary patch to a file. The input, patch, and the output file are
-// specified as command line arguments following the --patch switch.
-// Ex: --patch=courgette --input_file='input' --patch_file='patch'
-//        --output_file='output'
-const char kOutputFile[] = "output-file";
-const char kPatch[] = "patch";
-const char kPatchFile[] = "patch-file";
 
 // Provide the previous version that patch is for.
 const char kPreviousVersion[] = "previous-version";
@@ -216,9 +205,9 @@ const char kGoogleUpdateIsMachineEnvVar[] = "GoogleUpdateIsMachine";
 // Active Setup.
 const wchar_t kActiveSetupExe[] = L"chrmstp.exe";
 const wchar_t kChromeDll[] = L"chrome.dll";
-const wchar_t kChromeExe[] = L"ninarium.exe";
-const wchar_t kChromeNewExe[] = L"new_ninarium.exe";
-const wchar_t kChromeOldExe[] = L"old_ninarium.exe";
+const wchar_t kChromeExe[] = L"chrome.exe";
+const wchar_t kChromeNewExe[] = L"new_chrome.exe";
+const wchar_t kChromeOldExe[] = L"old_chrome.exe";
 const wchar_t kChromeProxyExe[] = L"chrome_proxy.exe";
 const wchar_t kChromeProxyNewExe[] = L"new_chrome_proxy.exe";
 const wchar_t kChromeProxyOldExe[] = L"old_chrome_proxy.exe";
