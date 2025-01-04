@@ -32,7 +32,7 @@ const wchar_t kInstallationRegKey[] = L"Software\\Ninarium";
 #endif
 
 // Copied from util_constants.cc.
-const wchar_t kChromeExe[] = L"chrome.exe";
+const wchar_t kChromeExe[] = L"ninarium.exe";
 const wchar_t kUninstallStringField[] = L"UninstallString";
 const wchar_t kVersionStringField[] = L"pv";
 
@@ -105,7 +105,7 @@ base::FilePath GetSetupExeForInstallationLevel(InstallationLevel level) {
 #endif
 }
 
-// Returns the path to an installed |exe_file| (e.g. chrome.exe) at the
+// Returns the path to an installed |exe_file| (e.g. ninarium.exe) at the
 // specified level, given |setup_exe_path| from the registry.  Returns empty
 // base::FilePath if none found, or if |setup_exe_path| is empty.
 base::FilePath FindExeRelativeToSetupExe(const base::FilePath setup_exe_path,
@@ -113,7 +113,7 @@ base::FilePath FindExeRelativeToSetupExe(const base::FilePath setup_exe_path,
   if (!setup_exe_path.empty()) {
     // The uninstall path contains the path to setup.exe, which is two levels
     // down from |exe_file|. Move up two levels (plus one to drop the file
-    // name) and look for chrome.exe from there.
+    // name) and look for ninarium.exe from there.
     base::FilePath exe_path(
         setup_exe_path.DirName().DirName().DirName().Append(exe_file));
     if (base::PathExists(exe_path))
