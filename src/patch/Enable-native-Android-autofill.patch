@@ -1,0 +1,998 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Sun, 24 Oct 2021 16:54:04 +0000
+Subject: Enable native Android autofill
+
+There are 2 different types of autofill: one managed via GCM and the
+native Android one that uses the provider assigned by the user
+(which can be any user installed app like Bitwarden for example).
+In chromium GCM is active while in the WebView the latter.
+This patch uses WebView code to enable native Android autofill
+along with browser-managed autofill.
+A separate toggle is introduced to enable autofill in incognito mode.
+
+See also: https://github.com/bromite/bromite/issues/547
+
+Original License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+License: GPL-3.0-only - https://spdx.org/licenses/GPL-3.0-only.html
+---
+ .../settings/PasswordSettings.java            | 83 ++++++++++++++++++-
+ .../chrome/browser/settings/MainSettings.java |  3 +-
+ .../chromium/chrome/browser/tab/TabImpl.java  | 41 +++++++--
+ chrome/browser/about_flags.cc                 | 31 -------
+ chrome/browser/android/tab_android.cc         |  3 +-
+ chrome/browser/autofill/android/BUILD.gn      |  2 +-
+ .../autofill/AutofillClientProviderUtils.java |  2 +-
+ chrome/browser/flag_descriptions.cc           |  6 --
+ chrome/browser/flag_descriptions.h            |  3 -
+ .../strings/android_chrome_strings.grd        |  6 ++
+ .../ui/autofill/autofill_client_provider.cc   | 78 +----------------
+ .../ui/autofill/autofill_client_provider.h    |  6 --
+ chrome/browser/ui/tab_helpers.cc              |  4 +-
+ components/android_autofill/browser/BUILD.gn  |  1 +
+ .../browser/android_autofill_manager.cc       |  2 +
+ .../browser/android_autofill_manager.h        |  2 +
+ .../autofill/AutofillManagerWrapper.java      |  5 +-
+ .../components/autofill/AutofillProvider.java |  7 ++
+ .../BrowserSelectionActionMenuDelegate.java   | 62 ++++++++++++++
+ .../browser/content_autofill_driver.cc        | 11 +++
+ .../content/browser/content_autofill_driver.h | 10 +++
+ .../content_autofill_driver_factory.cc        | 12 +++
+ .../content/renderer/autofill_agent.cc        |  6 ++
+ .../renderer/password_autofill_agent.cc       |  5 +-
+ .../autofill/core/browser/autofill_driver.h   |  2 +
+ .../core/browser/autofill_driver_factory.cc   |  4 +
+ .../autofill/core/browser/autofill_manager.h  |  2 +
+ .../core/browser/browser_autofill_manager.cc  |  2 +
+ .../core/browser/browser_autofill_manager.h   |  2 +
+ .../autofill/core/common/autofill_features.cc |  2 +-
+ .../autofill/core/common/autofill_features.h  | 22 -----
+ .../autofill/core/common/autofill_prefs.cc    |  4 +-
+ .../autofill/core/common/autofill_prefs.h     |  5 ++
+ 33 files changed, 271 insertions(+), 165 deletions(-)
+ create mode 100644 components/android_autofill/browser/java/src/org/chromium/components/autofill/BrowserSelectionActionMenuDelegate.java
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/password_manager/settings/PasswordSettings.java b/chrome/android/java/src/org/chromium/chrome/browser/password_manager/settings/PasswordSettings.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/password_manager/settings/PasswordSettings.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/password_manager/settings/PasswordSettings.java
+@@ -28,7 +28,9 @@ import androidx.preference.PreferenceCategory;
+ import androidx.preference.PreferenceGroup;
+ 
+ import org.chromium.base.BuildInfo;
++import org.chromium.base.StrictModeContext;
+ import org.chromium.base.metrics.RecordHistogram;
++import org.chromium.base.supplier.Supplier;
+ import org.chromium.base.supplier.ObservableSupplier;
+ import org.chromium.base.supplier.ObservableSupplierImpl;
+ import org.chromium.base.supplier.OneshotSupplier;
+@@ -62,6 +64,11 @@ import java.lang.annotation.Retention;
+ import java.lang.annotation.RetentionPolicy;
+ import java.util.Locale;
+ 
++import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
++import org.chromium.chrome.browser.ui.messages.snackbar.INeedSnackbarManager;
++import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
++import org.chromium.chrome.browser.lifetime.ApplicationLifetime;
++
+ /**
+  * The "Passwords" screen in Settings, which allows the user to enable or disable password saving,
+  * to view saved passwords (just the username and URL), and to delete saved passwords.
+@@ -71,7 +78,7 @@ import java.util.Locale;
+ public class PasswordSettings extends ChromeBaseSettingsFragment
+         implements PasswordListObserver,
+                 Preference.OnPreferenceClickListener,
+-                SyncService.SyncStateChangedListener {
++                SyncService.SyncStateChangedListener, INeedSnackbarManager {
+     @IntDef({
+         TrustedVaultBannerState.NOT_SHOWN,
+         TrustedVaultBannerState.OFFER_OPT_IN,
+@@ -101,6 +108,12 @@ public class PasswordSettings extends ChromeBaseSettingsFragment
+     public static final String PREF_TRUSTED_VAULT_BANNER = "trusted_vault_banner";
+     public static final String PREF_KEY_MANAGE_ACCOUNT_LINK = "manage_account_link";
+ 
++    public static final String PREF_ANDROID_AUTOFILL_SWITCH = "android_autofill_switch";
++    public static final String PREF_ANDROID_AUTOFILL_INCOGNITO_SWITCH = "android_autofill_incognito_switch";
++
++    private Supplier<SnackbarManager> mSnackbarManagerSupplier;
++    private Snackbar mSnackbar;
++
+     private static final String PREF_KEY_CATEGORY_SAVED_PASSWORDS = "saved_passwords";
+     private static final String PREF_KEY_CATEGORY_EXCEPTIONS = "exceptions";
+     private static final String PREF_KEY_SAVED_PASSWORDS_NO_TEXT = "saved_passwords_no_text";
+@@ -133,6 +146,8 @@ public class PasswordSettings extends ChromeBaseSettingsFragment
+     private Preference mLinkPref;
+     private Menu mMenu;
+ 
++    private ChromeSwitchPreference mEnableAndroidAutofillSwitch;
++    private ChromeSwitchPreference mEnableAndroidAutofillIncognitoSwitch;
+     private @ManagePasswordsReferrer int mManagePasswordsReferrer;
+     private OneshotSupplier<BottomSheetController> mBottomSheetControllerSupplier;
+     private final ObservableSupplierImpl<String> mPageTitle = new ObservableSupplierImpl<>();
+@@ -318,6 +333,7 @@ public class PasswordSettings extends ChromeBaseSettingsFragment
+         }
+ 
+         createSavePasswordsSwitch();
++        createEnableAndroidAutofillSwitch();
+         if (shouldShowAutoSigninOption()) {
+             createAutoSignInCheckbox();
+         }
+@@ -590,6 +606,71 @@ public class PasswordSettings extends ChromeBaseSettingsFragment
+                 getPrefService().getBoolean(Pref.CREDENTIALS_ENABLE_SERVICE));
+     }
+ 
++    private void createEnableAndroidAutofillSwitch() {
++        if (mSnackbar == null) {
++            mSnackbar = Snackbar.make(getActivity().getString(R.string.ui_relaunch_notice),
++                    new SnackbarManager.SnackbarController() {
++                            @Override
++                            public void onDismissNoAction(Object actionData) { }
++
++                            @Override
++                            public void onAction(Object actionData) {
++                                ApplicationLifetime.terminate(true);
++                            }
++                    }, Snackbar.TYPE_NOTIFICATION, Snackbar.UMA_UNKNOWN)
++                    .setSingleLine(false)
++                    .setAction(getActivity().getString(R.string.relaunch),
++                            /*actionData*/null)
++                    .setDuration(/*durationMs*/70000);
++        }
++
++        mEnableAndroidAutofillSwitch = new ChromeSwitchPreference(getStyledContext(), null);
++        mEnableAndroidAutofillSwitch.setKey(PREF_ANDROID_AUTOFILL_SWITCH);
++        mEnableAndroidAutofillSwitch.setTitle(R.string.enable_android_autofill);
++        mEnableAndroidAutofillSwitch.setOrder(ORDER_SWITCH);
++        mEnableAndroidAutofillSwitch.setSummaryOn(R.string.text_on);
++        mEnableAndroidAutofillSwitch.setSummaryOff(R.string.text_off);
++
++        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
++            getPreferenceScreen().addPreference(mEnableAndroidAutofillSwitch);
++        }
++
++        mEnableAndroidAutofillSwitch.setChecked(
++                getPrefService().getBoolean(Pref.AUTOFILL_ANDROID_ENABLED));
++
++        mEnableAndroidAutofillSwitch.setOnPreferenceChangeListener((preference, newValue) -> {
++            getPrefService().setBoolean(Pref.AUTOFILL_ANDROID_ENABLED, (boolean) newValue);
++            if (!mSnackbarManagerSupplier.get().isShowing())
++                mSnackbarManagerSupplier.get().showSnackbar(mSnackbar);
++            return true;
++        });
++
++        mEnableAndroidAutofillIncognitoSwitch = new ChromeSwitchPreference(getStyledContext(), null);
++        mEnableAndroidAutofillIncognitoSwitch.setKey(PREF_ANDROID_AUTOFILL_INCOGNITO_SWITCH);
++        mEnableAndroidAutofillIncognitoSwitch.setTitle(R.string.enable_android_autofill_incognito);
++        mEnableAndroidAutofillIncognitoSwitch.setOrder(ORDER_SWITCH);
++        mEnableAndroidAutofillIncognitoSwitch.setSummaryOn(R.string.text_on);
++        mEnableAndroidAutofillIncognitoSwitch.setSummaryOff(R.string.text_off);
++
++        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
++            getPreferenceScreen().addPreference(mEnableAndroidAutofillIncognitoSwitch);
++        }
++
++        mEnableAndroidAutofillIncognitoSwitch.setChecked(
++                getPrefService().getBoolean(Pref.AUTOFILL_ANDROID_INCOGNITO_ENABLED));
++
++        mEnableAndroidAutofillIncognitoSwitch.setOnPreferenceChangeListener((preference, newValue) -> {
++            getPrefService().setBoolean(Pref.AUTOFILL_ANDROID_INCOGNITO_ENABLED, (boolean) newValue);
++            if (!mSnackbarManagerSupplier.get().isShowing())
++                mSnackbarManagerSupplier.get().showSnackbar(mSnackbar);
++            return true;
++        });
++    }
++
++    public void setSnackbarManagerSupplier(Supplier<SnackbarManager> manager) {
++        mSnackbarManagerSupplier = manager;
++    }
++
+     private void createAutoSignInCheckbox() {
+         ChromeSwitchPreference autoSignInSwitch =
+                 new ChromeSwitchPreference(getStyledContext(), null);
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/settings/MainSettings.java b/chrome/android/java/src/org/chromium/chrome/browser/settings/MainSettings.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/settings/MainSettings.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/settings/MainSettings.java
+@@ -511,8 +511,7 @@ public class MainSettings extends ChromeBaseSettingsFragment
+ 
+     private void updateAutofillPreferences() {
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+-                && ChromeFeatureList.isEnabled(
+-                        AutofillFeatures.AUTOFILL_VIRTUAL_VIEW_STRUCTURE_ANDROID)) {
++                && ((false))) {
+             addPreferenceIfAbsent(PREF_AUTOFILL_SECTION);
+             addPreferenceIfAbsent(PREF_AUTOFILL_OPTIONS);
+             Preference preference = findPreference(PREF_AUTOFILL_OPTIONS);
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/tab/TabImpl.java b/chrome/android/java/src/org/chromium/chrome/browser/tab/TabImpl.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/tab/TabImpl.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/tab/TabImpl.java
+@@ -94,6 +94,13 @@ import java.lang.annotation.RetentionPolicy;
+ import java.nio.ByteBuffer;
+ import java.util.Objects;
+ 
++import org.chromium.components.autofill.AutofillSelectionMenuItemHelper;
++import org.chromium.components.autofill.BrowserSelectionActionMenuDelegate;
++import org.chromium.content_public.browser.SelectionPopupController;
++import org.chromium.chrome.browser.preferences.Pref;
++import org.chromium.chrome.browser.profiles.ProfileManager;
++import org.chromium.components.user_prefs.UserPrefs;
++
+ /**
+  * Implementation of the interface {@link Tab}. Contains and manages a {@link ContentView}. This
+  * class is not intended to be extended.
+@@ -1026,6 +1033,11 @@ class TabImpl implements Tab {
+         for (TabObserver observer : mObservers) observer.onDestroyed(this);
+         mObservers.clear();
+ 
++        if (mAutofillProvider != null) {
++            mAutofillProvider.destroy();
++            mAutofillProvider = null;
++        }
++
+         mUserDataHost.destroy();
+         mTabViewManager.destroy();
+         hideNativePage(false, null);
+@@ -1305,6 +1317,7 @@ class TabImpl implements Tab {
+      * @return iff the AutofillProvider should provide a ViewStructure when prompted.
+      */
+     boolean providesAutofillStructure() {
++        if ((true)) return true;
+         if (!ChromeFeatureList.isEnabled(
+                 AutofillFeatures.AUTOFILL_VIRTUAL_VIEW_STRUCTURE_ANDROID)) {
+             return false;
+@@ -2072,15 +2085,20 @@ class TabImpl implements Tab {
+      * @return true if the the provider is available for the given WebContents.
+      */
+     private boolean prepareAutofillProvider(WebContents newWebContents) {
+-        assert isInitialized();
+-        if (!providesAutofillStructure()) {
++        boolean autofillEnabled = false;
++        if (isIncognito()) {
++            autofillEnabled = UserPrefs.get(ProfileManager.getLastUsedRegularProfile())
++                                        .getBoolean(Pref.AUTOFILL_ANDROID_INCOGNITO_ENABLED);
++        } else {
++            autofillEnabled = UserPrefs.get(ProfileManager.getLastUsedRegularProfile())
++                                        .getBoolean(Pref.AUTOFILL_ANDROID_ENABLED);
++        }
++        if (!autofillEnabled) {
+             mAutofillProvider = null;
+             return false; // Autofill provider can't be prepared.
+         }
+-        if (mAutofillProvider != null) {
+-            // Provider already existed. Swapping contents suffices.
+-            mAutofillProvider.setWebContents(newWebContents);
+-        } else {
++        assert isInitialized();
++        if (mAutofillProvider == null) {
+             mAutofillProvider =
+                     new AutofillProvider(
+                             getContext(),
+@@ -2089,7 +2107,16 @@ class TabImpl implements Tab {
+                             getContext().getString(R.string.app_name));
+             TabImplJni.get().initializeAutofillIfNecessary(mNativeTabAndroid);
+         }
+-        addAutofillItemsToSelectionActionMenu(newWebContents);
++        SelectionPopupController selectionController =
++                SelectionPopupController.fromWebContents(newWebContents);
++        mAutofillProvider.setWebContents(newWebContents);
++        mContentView.setWebContents(newWebContents);
++        BrowserSelectionActionMenuDelegate selectionActionMenuDelegate =
++                new BrowserSelectionActionMenuDelegate();
++        selectionActionMenuDelegate.setAutofillSelectionMenuItemHelper(
++                new AutofillSelectionMenuItemHelper(getContext(), mAutofillProvider));
++        selectionController.setSelectionActionMenuDelegate(selectionActionMenuDelegate);
++
+         return true;
+     }
+ 
+diff --git a/chrome/browser/about_flags.cc b/chrome/browser/about_flags.cc
+--- a/chrome/browser/about_flags.cc
++++ b/chrome/browser/about_flags.cc
+@@ -3787,28 +3787,6 @@ const FeatureEntry::FeatureVariation kAutofillGranularFillingAvailableVariations
+           kAutofillGranularFillingAvailableVariationWithExpandControlVisibleOnSelectionOnly),
+       nullptr}};
+ 
+-#if BUILDFLAG(IS_ANDROID)
+-inline constexpr flags_ui::FeatureEntry::FeatureParam
+-    kAutofillVirtualViewStructureAndroidSkipCompatibilityCheck = {
+-        autofill::features::
+-            kAutofillVirtualViewStructureAndroidSkipsCompatibilityCheck.name,
+-        "skip_all_checks"};
+-inline constexpr flags_ui::FeatureEntry::FeatureParam
+-    kAutofillVirtualViewStructureAndroidOnlySkipAwgCheck = {
+-        autofill::features::
+-            kAutofillVirtualViewStructureAndroidSkipsCompatibilityCheck.name,
+-        "only_skip_awg_check"};
+-
+-inline constexpr flags_ui::FeatureEntry::FeatureVariation
+-    kAutofillVirtualViewStructureVariation[] = {
+-        {" without any compatibility check",
+-         &kAutofillVirtualViewStructureAndroidSkipCompatibilityCheck, 1,
+-         nullptr},
+-        {" without AwG restriction",
+-         &kAutofillVirtualViewStructureAndroidOnlySkipAwgCheck, 1, nullptr}};
+-
+-#endif  // BUILDFLAG(IS_ANDROID)
+-
+ const FeatureEntry::FeatureParam
+     kPrerender2WarmUpCompositorTriggerPointDidCommitLoad[] = {
+         {"trigger_point", "did_commit_load"}};
+@@ -6145,15 +6123,6 @@ const FeatureEntry kFeatureEntries[] = {
+ #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+ 
+ #if BUILDFLAG(IS_ANDROID)
+-    {"enable-autofill-virtual-view-structure",
+-     flag_descriptions::kAutofillVirtualViewStructureAndroidName,
+-     flag_descriptions::kAutofillVirtualViewStructureAndroidDescription,
+-     kOsAndroid,
+-     FEATURE_WITH_PARAMS_VALUE_TYPE(
+-         autofill::features::kAutofillVirtualViewStructureAndroid,
+-         kAutofillVirtualViewStructureVariation,
+-         "Skip AutofillService Check")},
+-
+     {"enable-pix-detection", flag_descriptions::kEnablePixDetectionName,
+      flag_descriptions::kEnablePixDetectionDescription, kOsAndroid,
+      FEATURE_VALUE_TYPE(payments::facilitated::kEnablePixDetection)},
+diff --git a/chrome/browser/android/tab_android.cc b/chrome/browser/android/tab_android.cc
+--- a/chrome/browser/android/tab_android.cc
++++ b/chrome/browser/android/tab_android.cc
+@@ -368,8 +368,7 @@ void TabAndroid::InitializeAutofillIfNecessary(JNIEnv* env) {
+         ->MaybeInitKeyboardSuppressor();
+     return;
+   }
+-  android_autofill::AndroidAutofillClient::CreateForWebContents(
+-      web_contents_.get());
++  autofill::ChromeAutofillClient::CreateForWebContents(web_contents_.get());
+ 
+   // We need to initialize the keyboard suppressor before creating any
+   // AutofillManagers and after the autofill client is available.
+diff --git a/chrome/browser/autofill/android/BUILD.gn b/chrome/browser/autofill/android/BUILD.gn
+--- a/chrome/browser/autofill/android/BUILD.gn
++++ b/chrome/browser/autofill/android/BUILD.gn
+@@ -130,7 +130,7 @@ android_library("bottom_sheet_utils_java") {
+ generate_jni("jni_headers") {
+   sources = [
+     "java/src/org/chromium/chrome/browser/autofill/AddressNormalizerFactory.java",
+-    "java/src/org/chromium/chrome/browser/autofill/AutofillClientProviderUtils.java",
++    #"java/src/org/chromium/chrome/browser/autofill/AutofillClientProviderUtils.java",
+     "java/src/org/chromium/chrome/browser/autofill/AutofillImageFetcher.java",
+     "java/src/org/chromium/chrome/browser/autofill/AutofillProfileBridge.java",
+     "java/src/org/chromium/chrome/browser/autofill/PersonalDataManager.java",
+diff --git a/chrome/browser/autofill/android/java/src/org/chromium/chrome/browser/autofill/AutofillClientProviderUtils.java b/chrome/browser/autofill/android/java/src/org/chromium/chrome/browser/autofill/AutofillClientProviderUtils.java
+--- a/chrome/browser/autofill/android/java/src/org/chromium/chrome/browser/autofill/AutofillClientProviderUtils.java
++++ b/chrome/browser/autofill/android/java/src/org/chromium/chrome/browser/autofill/AutofillClientProviderUtils.java
+@@ -45,8 +45,8 @@ public class AutofillClientProviderUtils {
+      * @return {@link AndroidAutofillAvailabilityStatus.AVAILABLE} if Android Autofill can be used
+      *     or a reason why it can't.
+      */
+-    @CalledByNative
+     public static int getAndroidAutofillFrameworkAvailability(PrefService prefs) {
++        if ((true)) return AndroidAutofillAvailabilityStatus.AVAILABLE;
+         if (sAndroidAutofillFrameworkAvailabilityForTesting != null) {
+             return sAndroidAutofillFrameworkAvailabilityForTesting;
+         }
+diff --git a/chrome/browser/flag_descriptions.cc b/chrome/browser/flag_descriptions.cc
+--- a/chrome/browser/flag_descriptions.cc
++++ b/chrome/browser/flag_descriptions.cc
+@@ -805,12 +805,6 @@ const char kAutofillVcnEnrollRequestTimeoutDescription[] =
+     "VCN enrollment request. Upon timeout, the client will terminate the VCN "
+     "enrollment UI, but the request may still succeed server-side.";
+ 
+-const char kAutofillVirtualViewStructureAndroidName[] =
+-    "Enable the setting to provide a virtual view structure for Autofill";
+-const char kAutofillVirtualViewStructureAndroidDescription[] =
+-    "When enabled, a setting allows to switch to using Android Autofill. Chrome"
+-    " then provides a virtual view structure but no own suggestions.";
+-
+ const char kAutoPictureInPictureForVideoPlaybackName[] =
+     "Auto picture in picture for video playback";
+ const char kAutoPictureInPictureForVideoPlaybackDescription[] =
+diff --git a/chrome/browser/flag_descriptions.h b/chrome/browser/flag_descriptions.h
+--- a/chrome/browser/flag_descriptions.h
++++ b/chrome/browser/flag_descriptions.h
+@@ -457,9 +457,6 @@ extern const char kAutofillUpstreamUpdatedUiDescription[];
+ extern const char kAutofillVcnEnrollRequestTimeoutName[];
+ extern const char kAutofillVcnEnrollRequestTimeoutDescription[];
+ 
+-extern const char kAutofillVirtualViewStructureAndroidName[];
+-extern const char kAutofillVirtualViewStructureAndroidDescription[];
+-
+ extern const char kAutoPictureInPictureForVideoPlaybackName[];
+ extern const char kAutoPictureInPictureForVideoPlaybackDescription[];
+ 
+diff --git a/chrome/browser/ui/android/strings/android_chrome_strings.grd b/chrome/browser/ui/android/strings/android_chrome_strings.grd
+--- a/chrome/browser/ui/android/strings/android_chrome_strings.grd
++++ b/chrome/browser/ui/android/strings/android_chrome_strings.grd
+@@ -705,6 +705,12 @@ For more settings that use data to improve your Chrome experience, go to <ph nam
+       <message name="IDS_PASSWORD_SETTINGS_SAVE_PASSWORDS" desc="Title for the checkbox toggling whether passwords are saved or not. [CHAR_LIMIT=32]">
+         Save passwords
+       </message>
++      <message name="IDS_ENABLE_ANDROID_AUTOFILL" desc="Title for the checkbox toggling whether enable Android native autofill or not. [CHAR_LIMIT=32]">
++        Enable native Android autofill
++      </message>
++      <message name="IDS_ENABLE_ANDROID_AUTOFILL_INCOGNITO" desc="Title for the checkbox toggling whether enable Android native autofill or not in incognito mode. [CHAR_LIMIT=32]">
++        Enable native Android autofill in incognito
++      </message>
+       <message name="IDS_PASSWORDS_ACCOUNT_STORAGE_TOGGLE_TITLE" desc="Title for the toggle in settings that controls whether signed-in users can save/autofill passwords to/from their account.">
+         Use and save passwords in your Google Account
+       </message>
+diff --git a/chrome/browser/ui/autofill/autofill_client_provider.cc b/chrome/browser/ui/autofill/autofill_client_provider.cc
+--- a/chrome/browser/ui/autofill/autofill_client_provider.cc
++++ b/chrome/browser/ui/autofill/autofill_client_provider.cc
+@@ -13,8 +13,6 @@
+ 
+ #if BUILDFLAG(IS_ANDROID)
+ #include "base/android/jni_android.h"
+-#include "chrome/browser/autofill/android/android_autofill_availability_status.h"
+-#include "chrome/browser/autofill/android/jni_headers/AutofillClientProviderUtils_jni.h"
+ #include "chrome/browser/keyboard_accessory/android/manual_filling_controller_impl.h"
+ #include "components/android_autofill/browser/android_autofill_client.h"
+ #endif  // BUILDFLAG(IS_ANDROID)
+@@ -22,76 +20,12 @@
+ namespace autofill {
+ namespace {
+ 
+-#if BUILDFLAG(IS_ANDROID)
+-AndroidAutofillAvailabilityStatus GetAndroidAutofillAvailabilityStatus(
+-    PrefService& prefs) {
+-  return static_cast<AndroidAutofillAvailabilityStatus>(
+-      Java_AutofillClientProviderUtils_getAndroidAutofillFrameworkAvailability(
+-          base::android::AttachCurrentThread(), prefs.GetJavaObject()));
+-}
+-#endif
+-
+-#if BUILDFLAG(IS_ANDROID)
+-void RecordAvailabilityStatus(AndroidAutofillAvailabilityStatus availability) {
+-  base::UmaHistogramEnumeration("Autofill.AndroidAutofillAvailabilityStatus",
+-                                availability);
+-}
+-
+-// Counts how often the Chrome pref is reset because an platform autofill
+-// isn't allowed or doesn't fulfill all preconditions.
+-void RecordWhetherAndroidPrefResets(PrefService& prefs,
+-                                    bool uses_platform_autofill) {
+-  const bool will_reset_pref =
+-      prefs.GetBoolean(prefs::kAutofillUsingVirtualViewStructure) &&
+-      !uses_platform_autofill;
+-  base::UmaHistogramBoolean("Autofill.ResetAutofillPrefToChrome",
+-                            will_reset_pref);
+-}
+-#endif  // BUILDFLAG(IS_ANDROID)
+-
+-bool UsesVirtualViewStructureForAutofill(PrefService& prefs) {
+-#if BUILDFLAG(IS_ANDROID)
+-  const AndroidAutofillAvailabilityStatus availability =
+-      GetAndroidAutofillAvailabilityStatus(prefs);
+-  RecordAvailabilityStatus(availability);
+-  switch (availability) {
+-    case AndroidAutofillAvailabilityStatus::kAvailable:
+-      return true;
+-    case AndroidAutofillAvailabilityStatus::kSettingTurnedOff:
+-    case AndroidAutofillAvailabilityStatus::kNotAllowedByPolicy:
+-      return false;
+-    case AndroidAutofillAvailabilityStatus::kAndroidVersionTooOld:
+-    case AndroidAutofillAvailabilityStatus::kAndroidAutofillManagerNotAvailable:
+-    case AndroidAutofillAvailabilityStatus::kAndroidAutofillNotSupported:
+-    case AndroidAutofillAvailabilityStatus::kUnknownAndroidAutofillService:
+-      return features::
+-                 kAutofillVirtualViewStructureAndroidSkipsCompatibilityCheck
+-                     .Get() ==
+-             features::VirtualViewStructureSkipChecks::kSkipAllChecks;
+-    case AndroidAutofillAvailabilityStatus::kAndroidAutofillServiceIsGoogle:
+-      return features::
+-                     kAutofillVirtualViewStructureAndroidSkipsCompatibilityCheck
+-                         .Get() ==
+-                 features::VirtualViewStructureSkipChecks::kSkipAllChecks ||
+-             features::
+-                     kAutofillVirtualViewStructureAndroidSkipsCompatibilityCheck
+-                         .Get() ==
+-                 features::VirtualViewStructureSkipChecks::kOnlySkipAwGCheck;
+-  }
+-#else
+-  return false;
+-#endif  // BUILDFLAG(IS_ANDROID)
+-}
+-
+ }  // namespace
+ 
+-AutofillClientProvider::AutofillClientProvider(PrefService* prefs)
+-    : uses_platform_autofill_(UsesVirtualViewStructureForAutofill(*prefs)) {
++AutofillClientProvider::AutofillClientProvider(PrefService* prefs) {
+ #if BUILDFLAG(IS_ANDROID)
+-  RecordWhetherAndroidPrefResets(*prefs, uses_platform_autofill_);
+-  // Ensure the pref is reset if platform autofill is restricted.
+   prefs->SetBoolean(prefs::kAutofillUsingVirtualViewStructure,
+-                    uses_platform_autofill_);
++                    true);
+ #endif  // BUILDFLAG(IS_ANDROID)
+ }
+ 
+@@ -99,15 +33,7 @@ AutofillClientProvider::~AutofillClientProvider() = default;
+ 
+ void AutofillClientProvider::CreateClientForWebContents(
+     content::WebContents* web_contents) {
+-  if (uses_platform_autofill()) {
+-#if BUILDFLAG(IS_ANDROID)
+-    android_autofill::AndroidAutofillClient::CreateForWebContents(web_contents);
+-#else
+-    NOTREACHED_IN_MIGRATION();
+-#endif
+-  } else {
+     ChromeAutofillClient::CreateForWebContents(web_contents);
+-  }
+ }
+ 
+ }  // namespace autofill
+diff --git a/chrome/browser/ui/autofill/autofill_client_provider.h b/chrome/browser/ui/autofill/autofill_client_provider.h
+--- a/chrome/browser/ui/autofill/autofill_client_provider.h
++++ b/chrome/browser/ui/autofill/autofill_client_provider.h
+@@ -33,13 +33,7 @@ class AutofillClientProvider : public KeyedService {
+   // given `web_contents`.
+   void CreateClientForWebContents(content::WebContents* web_contents);
+ 
+-  // The return value is constant once this provider has been created. The
+-  // method returns true iff platform autofill should be used instead of
+-  // built-in autofill.
+-  bool uses_platform_autofill() const { return uses_platform_autofill_; }
+-
+  private:
+-  const bool uses_platform_autofill_;
+ };
+ 
+ }  // namespace autofill
+diff --git a/chrome/browser/ui/tab_helpers.cc b/chrome/browser/ui/tab_helpers.cc
+--- a/chrome/browser/ui/tab_helpers.cc
++++ b/chrome/browser/ui/tab_helpers.cc
+@@ -389,9 +389,7 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
+       web_contents);
+   ChainedBackNavigationTracker::CreateForWebContents(web_contents);
+   chrome_browser_net::NetErrorTabHelper::CreateForWebContents(web_contents);
+-  if (!autofill_client_provider.uses_platform_autofill()) {
+-    ChromePasswordManagerClient::CreateForWebContents(web_contents);
+-  }
++  ChromePasswordManagerClient::CreateForWebContents(web_contents);
+   ChromePasswordReuseDetectionManagerClient::CreateForWebContents(web_contents);
+   CreateSubresourceFilterWebContentsHelper(web_contents);
+ #if BUILDFLAG(ENABLE_RLZ)
+diff --git a/components/android_autofill/browser/BUILD.gn b/components/android_autofill/browser/BUILD.gn
+--- a/components/android_autofill/browser/BUILD.gn
++++ b/components/android_autofill/browser/BUILD.gn
+@@ -41,6 +41,7 @@ android_library("java") {
+     "java/src/org/chromium/components/autofill/AutofillRequest.java",
+     "java/src/org/chromium/components/autofill/AutofillSelectionActionMenuDelegate.java",
+     "java/src/org/chromium/components/autofill/AutofillSelectionMenuItemHelper.java",
++    "java/src/org/chromium/components/autofill/BrowserSelectionActionMenuDelegate.java",
+     "java/src/org/chromium/components/autofill/FormData.java",
+     "java/src/org/chromium/components/autofill/FormFieldData.java",
+     "java/src/org/chromium/components/autofill/PrefillRequest.java",
+diff --git a/components/android_autofill/browser/android_autofill_manager.cc b/components/android_autofill/browser/android_autofill_manager.cc
+--- a/components/android_autofill/browser/android_autofill_manager.cc
++++ b/components/android_autofill/browser/android_autofill_manager.cc
+@@ -33,6 +33,8 @@ AndroidAutofillManager::~AndroidAutofillManager() {
+   Reset();
+ }
+ 
++bool AndroidAutofillManager::IsAndroidAutofill() const { return true; }
++
+ base::WeakPtr<AutofillManager> AndroidAutofillManager::GetWeakPtr() {
+   return weak_ptr_factory_.GetWeakPtr();
+ }
+diff --git a/components/android_autofill/browser/android_autofill_manager.h b/components/android_autofill/browser/android_autofill_manager.h
+--- a/components/android_autofill/browser/android_autofill_manager.h
++++ b/components/android_autofill/browser/android_autofill_manager.h
+@@ -33,6 +33,8 @@ class AndroidAutofillManager : public AutofillManager,
+ 
+   ~AndroidAutofillManager() override;
+ 
++  bool IsAndroidAutofill() const override;
++
+   base::WeakPtr<AndroidAutofillManager> GetWeakPtrToLeafClass() {
+     return weak_ptr_factory_.GetWeakPtr();
+   }
+diff --git a/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillManagerWrapper.java b/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillManagerWrapper.java
+--- a/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillManagerWrapper.java
++++ b/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillManagerWrapper.java
+@@ -51,6 +51,7 @@ public class AutofillManagerWrapper {
+             AutofillManagerWrapper manager = mManager.get();
+             if (manager == null) return;
+             manager.mIsAutofillInputUIShowing = (event == EVENT_INPUT_SHOWN);
++            if (manager.isLoggable()) manager.log("onAutofillEvent isAutofillInputUIShowing: " + manager.mIsAutofillInputUIShowing);
+             if (event == EVENT_INPUT_SHOWN) manager.notifyInputUIChange();
+         }
+     }
+@@ -91,6 +92,7 @@ public class AutofillManagerWrapper {
+                 // Uses Exception to catch various cases. (refer to crbug.com/1186406)
+                 Log.e(TAG, "getAutofillServiceComponentName", e);
+             }
++            if (isLoggable()) log("componentName=" + componentName);
+             if (componentName != null) {
+                 mPackageName = componentName.getPackageName();
+                 mIsAwGCurrentAutofillService =
+@@ -256,7 +258,7 @@ public class AutofillManagerWrapper {
+     /** Always check isLoggable() before call this method. */
+     public static void log(String log) {
+         // Log.i() instead of Log.d() is used here because log.d() is stripped out in release build.
+-        Log.i(TAG, log);
++        Log.i(TAG, "---" + log);
+     }
+ 
+     public static boolean isLoggable() {
+@@ -269,6 +271,7 @@ public class AutofillManagerWrapper {
+         // NOTE: See the comment on TAG above for why this is still AwAutofillManager.
+         // Check the system setting directly.
+         sIsLoggable = android.util.Log.isLoggable(TAG, Log.DEBUG);
++        // sIsLoggable = true; // to force enable the log
+     }
+ 
+ }
+diff --git a/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillProvider.java b/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillProvider.java
+--- a/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillProvider.java
++++ b/components/android_autofill/browser/java/src/org/chromium/components/autofill/AutofillProvider.java
+@@ -195,13 +195,19 @@ public class AutofillProvider {
+ 
+     /** @return whether query autofill suggestion. */
+     public boolean shouldQueryAutofillSuggestion() {
++        AutofillManagerWrapper.log("---shouldQueryAutofillSuggestion" +
++            "  mRequest != null=" + (mRequest != null) +
++            "  mRequest.getFocusField() != null=" + (mRequest != null && mRequest.getFocusField() != null) +
++            "  !mAutofillManager.isAutofillInputUIShowing()=" + ( !mAutofillManager.isAutofillInputUIShowing()));
+         return mRequest != null
+                 && mRequest.getFocusField() != null
+                 && !mAutofillManager.isAutofillInputUIShowing();
+     }
+ 
+     public void queryAutofillSuggestion() {
++        AutofillManagerWrapper.log("queryAutofillSuggestion start");
+         if (shouldQueryAutofillSuggestion()) {
++            AutofillManagerWrapper.log("calling requestAutofill");
+             FocusField focusField = mRequest.getFocusField();
+             mAutofillManager.requestAutofill(
+                     mContainerView,
+@@ -261,6 +267,7 @@ public class AutofillProvider {
+             float width,
+             float height,
+             boolean hasServerPrediction) {
++        AutofillManagerWrapper.log("startAutofillSession");
+         Rect absBound = transformToWindowBounds(new RectF(x, y, x + width, y + height));
+         if (mRequest != null) notifyViewExitBeforeDestroyRequest();
+ 
+diff --git a/components/android_autofill/browser/java/src/org/chromium/components/autofill/BrowserSelectionActionMenuDelegate.java b/components/android_autofill/browser/java/src/org/chromium/components/autofill/BrowserSelectionActionMenuDelegate.java
+new file mode 100644
+--- /dev/null
++++ b/components/android_autofill/browser/java/src/org/chromium/components/autofill/BrowserSelectionActionMenuDelegate.java
+@@ -0,0 +1,62 @@
++// Copyright 2023 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++package org.chromium.components.autofill;
++
++import android.content.pm.ResolveInfo;
++
++import androidx.annotation.IntDef;
++import androidx.annotation.NonNull;
++
++import org.chromium.base.metrics.RecordHistogram;
++import org.chromium.components.autofill.AutofillSelectionMenuItemHelper;
++import org.chromium.content_public.browser.SelectionMenuItem;
++import org.chromium.content_public.browser.SelectionPopupController;
++import org.chromium.content_public.browser.selection.SelectionActionMenuDelegate;
++
++import java.lang.annotation.Retention;
++import java.lang.annotation.RetentionPolicy;
++import java.util.ArrayList;
++import java.util.List;
++
++import org.chromium.base.Log;
++
++/** Interface for customizing text selection menu items in {@link SelectionPopupController} */
++public class BrowserSelectionActionMenuDelegate implements SelectionActionMenuDelegate {
++    private AutofillSelectionMenuItemHelper mAutofillSelectionMenuItemHelper;
++
++    public BrowserSelectionActionMenuDelegate() {
++    }
++
++    @Override
++    public void modifyDefaultMenuItems(
++            List<SelectionMenuItem.Builder> menuItemBuilders,
++            boolean isSelectionPassword,
++            @NonNull String selectedText) {
++    }
++
++    @Override
++    public List<ResolveInfo> filterTextProcessingActivities(List<ResolveInfo> activities) {
++        return activities;
++    }
++
++    @NonNull
++    @Override
++    public List<SelectionMenuItem> getAdditionalNonSelectionItems() {
++        if (mAutofillSelectionMenuItemHelper != null) {
++            return mAutofillSelectionMenuItemHelper.getAdditionalItems();
++        }
++        return new ArrayList<>();
++    }
++
++    @NonNull
++    @Override
++    public List<SelectionMenuItem> getAdditionalTextProcessingItems() {
++        return new ArrayList<>();
++    }
++
++    public void setAutofillSelectionMenuItemHelper(AutofillSelectionMenuItemHelper provider) {
++        mAutofillSelectionMenuItemHelper = provider;
++    }
++}
+diff --git a/components/autofill/content/browser/content_autofill_driver.cc b/components/autofill/content/browser/content_autofill_driver.cc
+--- a/components/autofill/content/browser/content_autofill_driver.cc
++++ b/components/autofill/content/browser/content_autofill_driver.cc
+@@ -249,6 +249,13 @@ void RouteToManager(ContentAutofillDriver& source,
+         AutofillManager& manager = target.GetAutofillManager();
+         (manager.*
+          manager_fun)(WithNewVersion(std::forward<ManagerArgs>(args))...);
++
++        raw_ptr<AutofillManager> secondary_autofill_manager =
++                                    target.secondary_autofill_manager();
++        if (secondary_autofill_manager) {
++          (secondary_autofill_manager->*
++           manager_fun)(WithNewVersion(std::forward<ManagerArgs>(args))...);
++        }
+       },
+       source, Lift(source, std::forward<ActualArgs>(args))...);
+ }
+@@ -610,6 +617,10 @@ ContentAutofillDriver::GetAutofillAgent() {
+   return autofill_agent_;
+ }
+ 
++raw_ptr<AutofillManager> ContentAutofillDriver::secondary_autofill_manager() {
++  return secondary_autofill_manager_.get();
++}
++
+ void ContentAutofillDriver::LiftForTest(FormData& form) {
+   form = Lift(*this, form);
+ }
+diff --git a/components/autofill/content/browser/content_autofill_driver.h b/components/autofill/content/browser/content_autofill_driver.h
+--- a/components/autofill/content/browser/content_autofill_driver.h
++++ b/components/autofill/content/browser/content_autofill_driver.h
+@@ -137,6 +137,12 @@ class ContentAutofillDriver : public AutofillDriver,
+   // AutofillDriverFactory. Called on certain types of navigations.
+   void Reset(ContentAutofillDriverFactoryPassKey pass_key);
+ 
++  void set_secondary_autofill_manager(
++      std::unique_ptr<AutofillManager> secondary_autofill_manager) {
++    secondary_autofill_manager_ = std::move(secondary_autofill_manager);
++  }
++  raw_ptr<AutofillManager> secondary_autofill_manager() override;
++
+   content::RenderFrameHost* render_frame_host() { return &*render_frame_host_; }
+   const content::RenderFrameHost* render_frame_host() const {
+     return &*render_frame_host_;
+@@ -298,6 +304,10 @@ class ContentAutofillDriver : public AutofillDriver,
+   // The factory that created this driver. Outlives `this`.
+   const raw_ref<ContentAutofillDriverFactory> owner_;
+ 
++  // adds a reference for AndroidAutofillManager, since native autofill works in
++  // conjunction with browser autofill in Bromite
++  std::unique_ptr<AutofillManager> secondary_autofill_manager_ = nullptr;
++
+   mojo::AssociatedReceiver<mojom::AutofillDriver> receiver_{this};
+ 
+   mojo::AssociatedRemote<mojom::AutofillAgent> autofill_agent_;
+diff --git a/components/autofill/content/browser/content_autofill_driver_factory.cc b/components/autofill/content/browser/content_autofill_driver_factory.cc
+--- a/components/autofill/content/browser/content_autofill_driver_factory.cc
++++ b/components/autofill/content/browser/content_autofill_driver_factory.cc
+@@ -23,6 +23,12 @@
+ #include "content/public/browser/web_contents.h"
+ #include "third_party/blink/public/common/features.h"
+ 
++#if BUILDFLAG(IS_ANDROID)
++#include "components/android_autofill/browser/android_autofill_manager.h"
++#include "components/android_autofill/browser/autofill_provider.h"
++#include "components/android_autofill/browser/android_autofill_provider.h"
++#endif
++
+ namespace autofill {
+ 
+ class ScopedAutofillManagersObservation;
+@@ -127,6 +133,12 @@ ContentAutofillDriver* ContentAutofillDriverFactory::DriverForFrame(
+       return nullptr;
+     }
+     driver = std::make_unique<ContentAutofillDriver>(render_frame_host, this);
++#if BUILDFLAG(IS_ANDROID)
++    if (!driver->GetAutofillManager().IsAndroidAutofill()) {
++      driver->set_secondary_autofill_manager(
++          base::WrapUnique(new AndroidAutofillManager(driver.get())));
++    }
++#endif
+     DCHECK_EQ(driver->GetLifecycleState(), LifecycleState::kInactive);
+     for (auto& observer : observers()) {
+       observer.OnAutofillDriverCreated(*this, *driver);
+diff --git a/components/autofill/content/renderer/autofill_agent.cc b/components/autofill/content/renderer/autofill_agent.cc
+--- a/components/autofill/content/renderer/autofill_agent.cc
++++ b/components/autofill/content/renderer/autofill_agent.cc
+@@ -1281,12 +1281,16 @@ void AutofillAgent::ShowSuggestions(
+         password_generation_agent_->ShowPasswordGenerationSuggestions(
+             input_element)) {
+       is_popup_possibly_visible_ = true;
++#if !BUILDFLAG(IS_ANDROID)
+       return;
++#endif
+     }
+     if (password_autofill_agent_->ShowSuggestions(input_element,
+                                                   trigger_source)) {
+       is_popup_possibly_visible_ = true;
++#if !BUILDFLAG(IS_ANDROID)
+       return;
++#endif
+     }
+ 
+     // Password field elements should only have suggestions shown by the
+@@ -1294,11 +1298,13 @@ void AutofillAgent::ShowSuggestions(
+     // `FormControlTypeForAutofill()` because we are interested in whether the
+     // field is *currently* a password field, not whether it has ever been a
+     // password field.
++#if !BUILDFLAG(IS_ANDROID)
+     if (input_element.FormControlType() ==  // nocheck
+             blink::mojom::FormControlType::kInputPassword &&
+         !config_.query_password_suggestions) {
+       return;
+     }
++#endif
+   }
+ 
+   QueryAutofillSuggestions(element, trigger_source);
+diff --git a/components/autofill/content/renderer/password_autofill_agent.cc b/components/autofill/content/renderer/password_autofill_agent.cc
+--- a/components/autofill/content/renderer/password_autofill_agent.cc
++++ b/components/autofill/content/renderer/password_autofill_agent.cc
+@@ -900,7 +900,10 @@ void PasswordAutofillAgent::UpdatePasswordStateForTextChange(
+ 
+ void PasswordAutofillAgent::TrackAutofilledElement(
+     const WebFormControlElement& element) {
+-  autofill_agent_->TrackAutofilledElement(element);
++  // fix for https://github.com/bromite/bromite/issues/1570
++  AutofillAgent* agent = autofill_agent_.get();
++  if (agent)
++    agent->TrackAutofilledElement(element);
+ }
+ 
+ void PasswordAutofillAgent::FillPasswordSuggestion(
+diff --git a/components/autofill/core/browser/autofill_driver.h b/components/autofill/core/browser/autofill_driver.h
+--- a/components/autofill/core/browser/autofill_driver.h
++++ b/components/autofill/core/browser/autofill_driver.h
+@@ -148,6 +148,8 @@ class AutofillDriver {
+   // Returns the AutofillManager owned by the AutofillDriver.
+   virtual AutofillManager& GetAutofillManager() = 0;
+ 
++  virtual raw_ptr<AutofillManager> secondary_autofill_manager() = 0;
++
+   // Returns whether the AutofillDriver instance is associated with an active
+   // frame in the MPArch sense.
+   virtual bool IsActive() const = 0;
+diff --git a/components/autofill/core/browser/autofill_driver_factory.cc b/components/autofill/core/browser/autofill_driver_factory.cc
+--- a/components/autofill/core/browser/autofill_driver_factory.cc
++++ b/components/autofill/core/browser/autofill_driver_factory.cc
+@@ -25,6 +25,10 @@ void AutofillDriverFactory::SetLifecycleStateAndNotifyObservers(
+   }
+   driver.GetAutofillManager().OnAutofillDriverLifecycleStateChanged(
+       old_state, new_state, /*pass_key=*/{});
++  if (auto secondary = driver.secondary_autofill_manager()) {
++    secondary->OnAutofillDriverLifecycleStateChanged(
++      old_state, new_state, /*pass_key=*/{});
++  }
+ }
+ 
+ }  // namespace autofill
+diff --git a/components/autofill/core/browser/autofill_manager.h b/components/autofill/core/browser/autofill_manager.h
+--- a/components/autofill/core/browser/autofill_manager.h
++++ b/components/autofill/core/browser/autofill_manager.h
+@@ -220,6 +220,8 @@ class AutofillManager
+       LifecycleState new_state,
+       base::PassKey<AutofillDriverFactory> pass_key);
+ 
++  virtual bool IsAndroidAutofill() const = 0;
++
+   AutofillClient& client() { return driver_->GetAutofillClient(); }
+   const AutofillClient& client() const { return driver_->GetAutofillClient(); }
+ 
+diff --git a/components/autofill/core/browser/browser_autofill_manager.cc b/components/autofill/core/browser/browser_autofill_manager.cc
+--- a/components/autofill/core/browser/browser_autofill_manager.cc
++++ b/components/autofill/core/browser/browser_autofill_manager.cc
+@@ -744,6 +744,8 @@ BrowserAutofillManager::~BrowserAutofillManager() {
+   single_field_form_fill_router_->CancelPendingQueries();
+ }
+ 
++bool BrowserAutofillManager::IsAndroidAutofill() const { return false; }
++
+ base::WeakPtr<AutofillManager> BrowserAutofillManager::GetWeakPtr() {
+   return weak_ptr_factory_.GetWeakPtr();
+ }
+diff --git a/components/autofill/core/browser/browser_autofill_manager.h b/components/autofill/core/browser/browser_autofill_manager.h
+--- a/components/autofill/core/browser/browser_autofill_manager.h
++++ b/components/autofill/core/browser/browser_autofill_manager.h
+@@ -113,6 +113,8 @@ class BrowserAutofillManager : public AutofillManager {
+ 
+   ~BrowserAutofillManager() override;
+ 
++  bool IsAndroidAutofill() const override;
++
+   // Whether the |field| should show an entry to scan a credit card.
+   virtual bool ShouldShowScanCreditCard(const FormData& form,
+                                         const FormFieldData& field);
+diff --git a/components/autofill/core/common/autofill_features.cc b/components/autofill/core/common/autofill_features.cc
+--- a/components/autofill/core/common/autofill_features.cc
++++ b/components/autofill/core/common/autofill_features.cc
+@@ -752,7 +752,7 @@ BASE_FEATURE(kAutofillEnableSecurityTouchEventFilteringAndroid,
+ BASE_FEATURE(kAutofillVirtualViewStructureAndroid,
+              "AutofillVirtualViewStructureAndroid",
+              base::FEATURE_DISABLED_BY_DEFAULT);
+-
++SET_CROMITE_FEATURE_ENABLED(kAutofillVirtualViewStructureAndroid);
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
+ namespace test {
+diff --git a/components/autofill/core/common/autofill_features.h b/components/autofill/core/common/autofill_features.h
+--- a/components/autofill/core/common/autofill_features.h
++++ b/components/autofill/core/common/autofill_features.h
+@@ -258,28 +258,6 @@ COMPONENT_EXPORT(AUTOFILL)
+ BASE_DECLARE_FEATURE(kAutofillEnableSecurityTouchEventFilteringAndroid);
+ COMPONENT_EXPORT(AUTOFILL)
+ BASE_DECLARE_FEATURE(kAutofillVirtualViewStructureAndroid);
+-
+-// Used as param for `kAutofillVirtualViewStructureAndroid` to allow
+-// skipping certain checks when testing manually.
+-enum class VirtualViewStructureSkipChecks {
+-  kDontSkip = 0,
+-  kSkipAllChecks = 1,
+-  kOnlySkipAwGCheck = 2,
+-};
+-
+-inline constexpr base::FeatureParam<VirtualViewStructureSkipChecks>::Option
+-    kVirtualViewStructureSkipChecksOption[] = {
+-        {VirtualViewStructureSkipChecks::kDontSkip, "dont_skip"},
+-        {VirtualViewStructureSkipChecks::kSkipAllChecks, "skip_all_checks"},
+-        {VirtualViewStructureSkipChecks::kOnlySkipAwGCheck,
+-         "only_skip_awg_check"},
+-};
+-inline constexpr base::FeatureParam<VirtualViewStructureSkipChecks>
+-    kAutofillVirtualViewStructureAndroidSkipsCompatibilityCheck{
+-        &kAutofillVirtualViewStructureAndroid, "skip_compatibility_check",
+-        VirtualViewStructureSkipChecks::kDontSkip,
+-        &kVirtualViewStructureSkipChecksOption};
+-
+ #endif  // BUILDFLAG(IS_ANDROID)
+ 
+ #if BUILDFLAG(IS_APPLE)
+diff --git a/components/autofill/core/common/autofill_prefs.cc b/components/autofill/core/common/autofill_prefs.cc
+--- a/components/autofill/core/common/autofill_prefs.cc
++++ b/components/autofill/core/common/autofill_prefs.cc
+@@ -65,6 +65,8 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
+   registry->RegisterBooleanPref(
+       prefs::kAutofillCreditCardFidoAuthOfferCheckboxState, true);
+ #endif
++  registry->RegisterBooleanPref(prefs::kAutofillAndroidEnabled, true);
++  registry->RegisterBooleanPref(prefs::kAutofillAndroidIncognitoEnabled, false);
+   registry->RegisterIntegerPref(prefs::kAutocompleteLastVersionRetentionPolicy,
+                                 0);
+   registry->RegisterStringPref(prefs::kAutofillUploadEncodingSeed, "");
+@@ -109,7 +111,7 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
+ 
+ #if BUILDFLAG(IS_ANDROID)
+   registry->RegisterBooleanPref(prefs::kAutofillUsingVirtualViewStructure,
+-                                false);
++                                true);
+   registry->RegisterBooleanPref(
+       prefs::kAutofillThirdPartyPasswordManagersAllowed, true);
+   registry->RegisterBooleanPref(
+diff --git a/components/autofill/core/common/autofill_prefs.h b/components/autofill/core/common/autofill_prefs.h
+--- a/components/autofill/core/common/autofill_prefs.h
++++ b/components/autofill/core/common/autofill_prefs.h
+@@ -114,6 +114,11 @@ inline constexpr char kAutofillUploadEventsLastResetTimestamp[] =
+ // retention policy was run.
+ inline constexpr char kAutocompleteLastVersionRetentionPolicy[] =
+     "autocomplete.retention_policy_last_version";
++// Boolean that is true to enable native Android Autofill
++inline constexpr char kAutofillAndroidEnabled[] =
++    "autofill.android_autofill_enabled";
++inline constexpr char kAutofillAndroidIncognitoEnabled[] =
++    "autofill.android_autofill_incognito_enabled";
+ #if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || \
+     BUILDFLAG(IS_IOS)
+ // Boolean that is set when payment methods mandatory re-auth is enabled by the
+--
