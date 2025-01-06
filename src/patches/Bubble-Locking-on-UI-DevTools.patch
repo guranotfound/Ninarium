@@ -1,0 +1,82 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Tue, 30 Jul 2024 14:38:58 +0000
+Subject: Bubble Locking on UI DevTools
+
+Allows the use of ctrl+shift+click on the refresh button to
+activate the Bubble Locking mode for the native dev-ui.
+The current ctrl+shift+R is really inconvenient and often does not work.
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../browser/ui/views/toolbar/reload_button.cc |  8 ++++++
+ ui/views/widget/widget.h                      | 25 ++++++++++---------
+ 2 files changed, 21 insertions(+), 12 deletions(-)
+
+diff --git a/chrome/browser/ui/views/toolbar/reload_button.cc b/chrome/browser/ui/views/toolbar/reload_button.cc
+--- a/chrome/browser/ui/views/toolbar/reload_button.cc
++++ b/chrome/browser/ui/views/toolbar/reload_button.cc
+@@ -224,6 +224,14 @@ void ReloadButton::ButtonPressed(const ui::Event& event) {
+       command = IDC_RELOAD;
+     }
+ 
++    views::Widget::SetDisableActivationChangeHandling(
++        views::Widget::DisableActivationChangeHandlingType::kNone);
++    if (event.IsShiftDown() && event.IsControlDown()) {
++      views::Widget::SetDisableActivationChangeHandling(
++        views::Widget::DisableActivationChangeHandlingType::kIgnoreDeactivationOnly);
++      return;
++    }
++
+     // Start a timer - while this timer is running, the reload button cannot be
+     // changed to a stop button.  We do not set |intended_mode_| to Mode::kStop
+     // here as the browser will do that when it actually starts loading (which
+diff --git a/ui/views/widget/widget.h b/ui/views/widget/widget.h
+--- a/ui/views/widget/widget.h
++++ b/ui/views/widget/widget.h
+@@ -1235,6 +1235,19 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
+   void SetAllowScreenshots(bool allow);
+   bool AreScreenshotsAllowed();
+ 
++  // Type of ways to ignore activation changes.
++  enum class DisableActivationChangeHandlingType {
++    kNone = 0,  // Don't ignore any activation changes.
++    kIgnore,    // Ignore both activation and deactivation changes.
++    kIgnoreDeactivationOnly,  // Ignore only deactivation changes.
++  };
++
++  // Sets/gets the type of disabling widget activation change handling.
++  static void SetDisableActivationChangeHandling(
++      DisableActivationChangeHandlingType new_type) {
++    g_disable_activation_change_handling_ = new_type;
++  }
++
+  protected:
+   // Creates the RootView to be used within this Widget. Subclasses may override
+   // to create custom RootViews that do specialized event processing.
+@@ -1274,13 +1287,6 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
+   ui::ColorProviderKey GetColorProviderKey() const override;
+ 
+  private:
+-  // Type of ways to ignore activation changes.
+-  enum class DisableActivationChangeHandlingType {
+-    kNone = 0,  // Don't ignore any activation changes.
+-    kIgnore,    // Ignore both activation and deactivation changes.
+-    kIgnoreDeactivationOnly,  // Ignore only deactivation changes.
+-  };
+-
+   class PaintAsActiveLockImpl;
+ 
+   friend class ButtonTest;
+@@ -1291,11 +1297,6 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
+   friend class ui_devtools::BubbleLocking;
+   friend void DisableActivationChangeHandlingForTests();
+ 
+-  // Sets/gets the type of disabling widget activation change handling.
+-  static void SetDisableActivationChangeHandling(
+-      DisableActivationChangeHandlingType new_type) {
+-    g_disable_activation_change_handling_ = new_type;
+-  }
+   static DisableActivationChangeHandlingType
+   GetDisableActivationChangeHandling() {
+     return g_disable_activation_change_handling_;
+--

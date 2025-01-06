@@ -1,0 +1,47 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Mon, 1 May 2023 12:07:49 +0000
+Subject: Disable WebGPU
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ content/child/runtime_features.cc                | 2 ++
+ gpu/config/gpu_finch_features.cc                 | 2 +-
+ third_party/blink/renderer/modules/webgpu/gpu.cc | 1 +
+ 3 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+--- a/content/child/runtime_features.cc
++++ b/content/child/runtime_features.cc
+@@ -562,6 +562,8 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
+     WebRuntimeFeatures::EnableV8IdleTasks(true);
+   }
+ 
++  WebRuntimeFeatures::EnableFeatureFromString("WebGpu", false);
++
+   WebRuntimeFeatures::EnableBackForwardCache(
+       content::IsBackForwardCacheEnabled());
+ 
+diff --git a/gpu/config/gpu_finch_features.cc b/gpu/config/gpu_finch_features.cc
+--- a/gpu/config/gpu_finch_features.cc
++++ b/gpu/config/gpu_finch_features.cc
+@@ -234,7 +234,7 @@ BASE_FEATURE(kEnableDrDc,
+ // enabled by default on supported platforms.
+ #if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHROMEOS) || \
+     BUILDFLAG(IS_ANDROID)
+-#define WEBGPU_ENABLED base::FEATURE_ENABLED_BY_DEFAULT
++#define WEBGPU_ENABLED base::FEATURE_DISABLED_BY_DEFAULT
+ #else
+ #define WEBGPU_ENABLED base::FEATURE_DISABLED_BY_DEFAULT
+ #endif
+diff --git a/third_party/blink/renderer/modules/webgpu/gpu.cc b/third_party/blink/renderer/modules/webgpu/gpu.cc
+--- a/third_party/blink/renderer/modules/webgpu/gpu.cc
++++ b/third_party/blink/renderer/modules/webgpu/gpu.cc
+@@ -389,6 +389,7 @@ ScriptPromise<IDLNullable<GPUAdapter>> GPU::requestAdapter(
+         "WebGPU is experimental on this platform. See "
+         "https://github.com/gpuweb/gpuweb/wiki/"
+         "Implementation-Status#implementation-status"));
++    //(UAZO) add site setting
+   }
+ 
+   auto* resolver =
+--

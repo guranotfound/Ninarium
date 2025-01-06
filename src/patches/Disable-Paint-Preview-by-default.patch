@@ -1,0 +1,22 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Wed, 20 Mar 2024 16:26:23 +0000
+Subject: Disable Paint Preview by default
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../chrome/browser/paint_preview/StartupPaintPreviewHelper.java | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java b/chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java
+@@ -107,7 +107,7 @@ public class StartupPaintPreviewHelper {
+ 
+     /** Enables Paint Preview show attempt on restoration of a tab. */
+     public static void enableShowOnRestore() {
+-        sShouldShowOnRestore = true;
++        sShouldShowOnRestore = false;
+     }
+ 
+     /** Attempts to display the Paint Preview representation for the given Tab. */
+--

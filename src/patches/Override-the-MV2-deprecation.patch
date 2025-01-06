@@ -1,0 +1,24 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Mon, 2 Sep 2024 07:04:11 +0000
+Subject: Override the MV2 deprecation
+
+Uses the flag used in tests to forcibly enable MV2
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ chrome/browser/extensions/manifest_v2_experiment_manager.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/chrome/browser/extensions/manifest_v2_experiment_manager.cc b/chrome/browser/extensions/manifest_v2_experiment_manager.cc
+--- a/chrome/browser/extensions/manifest_v2_experiment_manager.cc
++++ b/chrome/browser/extensions/manifest_v2_experiment_manager.cc
+@@ -36,7 +36,7 @@ namespace extensions {
+ namespace {
+ 
+ // Whether to override the MV2 deprecation for testing purposes.
+-bool g_allow_mv2_for_testing = false;
++bool g_allow_mv2_for_testing = true;
+ 
+ // Returns the suffix to use for histograms related to the manifest location
+ // grouping.
+--

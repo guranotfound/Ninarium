@@ -1,0 +1,15 @@
+.\Add-a-proxy-configuration-page.patch
+.\Add-webRTC-site-settings.patch
+.\Disable-lock-icon-in-address-bar-by-default.patch
+.\Enable-fwrapv-in-Clang-for-non-UBSan-builds.patch
+.\Enable-HEVC-by-default.patch
+.\Guard-for-user-agent-reduction.patch
+.\Invalidate-components-public-key.patch
+.\Keep-flag-to-allow-screenshots-in-Incognito-mode.patch
+.\Partition-Blink-memory-cache.patch
+.\Private-network-access-content-settings.patch
+.\Remove-binary-blob-integrations.patch
+.\sharing-hub-always-use-visible-URL.patch
+.\Show-site-settings-for-cookies-javascript-and-ads.patch
+.\ungoogled-chromium-Disable-profile-avatar.patch
+.\webRTC-do-not-expose-local-IP-addresses.patch

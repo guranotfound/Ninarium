@@ -1,0 +1,362 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Sat, 15 Apr 2023 11:46:48 +0000
+Subject: Remove ChromiumNetworkAdapter
+
+Removes from java code the ability to make http connections
+without asking the native code
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../webview_shell/WebViewBrowserFragment.java | 56 -----------------
+ .../browser/download/OMADownloadHandler.java  | 39 ------------
+ .../browser/feedback/ConnectivityChecker.java | 36 +----------
+ .../ConnectivityDetector.java                 | 63 -------------------
+ .../chrome/browser/omaha/OmahaBase.java       |  3 +-
+ .../util/HttpURLConnectionFactoryImpl.java    |  7 +--
+ .../firstrun/VariationsSeedFetcher.java       | 26 +-------
+ .../chromium/net/ChromiumNetworkAdapter.java  | 13 ----
+ 8 files changed, 4 insertions(+), 239 deletions(-)
+
+diff --git a/android_webview/tools/system_webview_shell/apk/src/org/chromium/webview_shell/WebViewBrowserFragment.java b/android_webview/tools/system_webview_shell/apk/src/org/chromium/webview_shell/WebViewBrowserFragment.java
+--- a/android_webview/tools/system_webview_shell/apk/src/org/chromium/webview_shell/WebViewBrowserFragment.java
++++ b/android_webview/tools/system_webview_shell/apk/src/org/chromium/webview_shell/WebViewBrowserFragment.java
+@@ -240,62 +240,6 @@ public class WebViewBrowserFragment extends Fragment {
+         /** Downloading file in background thread */
+         @Override
+         protected String doInBackground() {
+-            try {
+-                NetworkTrafficAnnotationTag annotation =
+-                        NetworkTrafficAnnotationTag.createComplete(
+-                                "android_webview_shell",
+-                                """
+-                    semantics {
+-                      sender: "WebViewBrowserFragment (Android)"
+-                      description:
+-                        "Downloads files as specified by the shell browser."
+-                      trigger: "User interations within the browser, causing a download"
+-                      data: "No additional data."
+-                      destination: LOCAL
+-                      internal {
+-                        contacts {
+-                          email: "avvall@chromium.org"
+-                        }
+-                      }
+-                      user_data {
+-                        type: NONE
+-                      }
+-                      last_reviewed: "2024-07-25"
+-                    }
+-                    policy {
+-                      cookies_allowed: NO
+-                      setting: "This feature can not be disabled."
+-                      policy_exception_justification: "Not implemented."
+-                    }""");
+-                URL url = new URL(mFileUrl);
+-                URLConnection connection = ChromiumNetworkAdapter.openConnection(url, annotation);
+-                connection.connect();
+-
+-                // download the file
+-                InputStream input =
+-                        new BufferedInputStream(ChromiumNetworkAdapter.openStream(url, annotation));
+-
+-                File path =
+-                        Environment.getExternalStoragePublicDirectory(
+-                                Environment.DIRECTORY_DOWNLOADS);
+-                File file = new File(path, mNameOfFile);
+-                // Make sure the Downloads directory exists.
+-                path.mkdirs();
+-                OutputStream output = new FileOutputStream(file);
+-
+-                int count;
+-                byte[] data = new byte[BUFFER_SIZE];
+-                while ((count = input.read(data)) != -1) {
+-                    output.write(data, 0, count);
+-                }
+-
+-                output.flush();
+-                output.close();
+-                input.close();
+-            } catch (Exception e) {
+-                Log.e(TAG, "Error: " + e.getMessage());
+-            }
+-
+             return null;
+         }
+     }
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/download/OMADownloadHandler.java b/chrome/android/java/src/org/chromium/chrome/browser/download/OMADownloadHandler.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/download/OMADownloadHandler.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/download/OMADownloadHandler.java
+@@ -1013,45 +1013,6 @@ public class OMADownloadHandler extends BroadcastReceiver {
+         protected Boolean doInBackground() {
+             HttpURLConnection urlConnection = null;
+             boolean success = false;
+-            try {
+-                URL url = new URL(mOMAInfo.getValue(OMA_INSTALL_NOTIFY_URI));
+-                urlConnection =
+-                        (HttpURLConnection)
+-                                ChromiumNetworkAdapter.openConnection(url, TRAFFIC_ANNOTATION);
+-                urlConnection.setDoOutput(true);
+-                urlConnection.setUseCaches(false);
+-                urlConnection.setRequestMethod("POST");
+-                String userAgent = mDownloadInfo.getUserAgent();
+-                if (TextUtils.isEmpty(userAgent)) {
+-                    userAgent = ContentUtils.getBrowserUserAgent();
+-                }
+-                urlConnection.setRequestProperty("User-Agent", userAgent);
+-                urlConnection.setRequestProperty("cookie", mDownloadInfo.getCookie());
+-
+-                DataOutputStream dos = new DataOutputStream(urlConnection.getOutputStream());
+-                try {
+-                    dos.writeBytes(mStatusMessage);
+-                    dos.flush();
+-                } catch (IOException e) {
+-                    Log.w(TAG, "Cannot write status message.", e);
+-                } finally {
+-                    dos.close();
+-                }
+-                int responseCode = urlConnection.getResponseCode();
+-                if (responseCode == HttpURLConnection.HTTP_OK || responseCode == -1) {
+-                    success = true;
+-                } else {
+-                    success = false;
+-                }
+-            } catch (MalformedURLException e) {
+-                Log.w(TAG, "Invalid notification URL.", e);
+-            } catch (IOException e) {
+-                Log.w(TAG, "Cannot connect to server.", e);
+-            } catch (IllegalStateException e) {
+-                Log.w(TAG, "Cannot connect to server.", e);
+-            } finally {
+-                if (urlConnection != null) urlConnection.disconnect();
+-            }
+ 
+             if (success) {
+                 String path = mDownloadInfo.getFilePath();
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/feedback/ConnectivityChecker.java b/chrome/android/java/src/org/chromium/chrome/browser/feedback/ConnectivityChecker.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/feedback/ConnectivityChecker.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/feedback/ConnectivityChecker.java
+@@ -134,41 +134,7 @@ public final class ConnectivityChecker {
+             postResult(callback, ConnectivityCheckResult.ERROR);
+             return;
+         }
+-        new AsyncTask<Integer>() {
+-            @Override
+-            protected Integer doInBackground() {
+-                try {
+-                    HttpURLConnection conn =
+-                            (HttpURLConnection)
+-                                    ChromiumNetworkAdapter.openConnection(url, TRAFFIC_ANNOTATION);
+-                    conn.setInstanceFollowRedirects(false);
+-                    conn.setRequestMethod("GET");
+-                    conn.setDoInput(false);
+-                    conn.setDoOutput(false);
+-                    conn.setConnectTimeout(timeoutMs);
+-                    conn.setReadTimeout(timeoutMs);
+-
+-                    conn.connect();
+-                    int responseCode = conn.getResponseCode();
+-                    if (responseCode == HttpURLConnection.HTTP_NO_CONTENT) {
+-                        return ConnectivityCheckResult.CONNECTED;
+-                    } else {
+-                        return ConnectivityCheckResult.NOT_CONNECTED;
+-                    }
+-                } catch (SocketTimeoutException e) {
+-                    return ConnectivityCheckResult.TIMEOUT;
+-                } catch (ProtocolException e) {
+-                    return ConnectivityCheckResult.ERROR;
+-                } catch (IOException e) {
+-                    return ConnectivityCheckResult.NOT_CONNECTED;
+-                }
+-            }
+-
+-            @Override
+-            protected void onPostExecute(Integer result) {
+-                callback.onResult(result);
+-            }
+-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
++        postResult(callback, ConnectivityCheckResult.ERROR);
+     }
+ 
+     /**
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java b/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/net/connectivitydetector/ConnectivityDetector.java
+@@ -399,69 +399,6 @@ public class ConnectivityDetector implements NetworkChangeNotifier.ConnectionTyp
+         new AsyncTask<Integer>() {
+             @Override
+             protected Integer doInBackground() {
+-                HttpURLConnection urlConnection = null;
+-                try {
+-                    RecordHistogram.recordCount1MHistogram(
+-                            "ConnectivityDetector.SentHttpProbe." + mClientName, 1);
+-                    Log.i(TAG, "Sending HTTP Probe now to url:" + urlString);
+-
+-                    URL url = new URL(urlString);
+-                    urlConnection =
+-                            (HttpURLConnection)
+-                                    ChromiumNetworkAdapter.openConnection(
+-                                            url,
+-                                            NetworkTrafficAnnotationTag.MISSING_TRAFFIC_ANNOTATION);
+-                    urlConnection.setInstanceFollowRedirects(false);
+-                    urlConnection.setRequestMethod(sProbeMethod);
+-                    urlConnection.setConnectTimeout(timeoutMs);
+-                    urlConnection.setReadTimeout(timeoutMs);
+-                    urlConnection.setUseCaches(false);
+-                    urlConnection.setRequestProperty(USER_AGENT_HEADER_NAME, mUserAgentString);
+-
+-                    long requestTimestamp = SystemClock.elapsedRealtime();
+-                    urlConnection.connect();
+-                    long responseTimestamp = SystemClock.elapsedRealtime();
+-                    int responseCode = urlConnection.getResponseCode();
+-
+-                    Log.i(
+-                            TAG,
+-                            "Probe "
+-                                    + urlString
+-                                    + " time="
+-                                    + (responseTimestamp - requestTimestamp)
+-                                    + "ms ret="
+-                                    + responseCode
+-                                    + " headers="
+-                                    + urlConnection.getHeaderFields());
+-
+-                    if (responseCode == HttpURLConnection.HTTP_NO_CONTENT) {
+-                        return ProbeResult.VALIDATED_WITH_NO_CONTENT;
+-                    } else if (responseCode >= 400) {
+-                        return ProbeResult.SERVER_ERROR;
+-                    } else if (responseCode == HttpURLConnection.HTTP_OK) {
+-                        // Treat 200 response with zero content length to not be a captive portal
+-                        // because the user cannot sign in to an empty page. Probably this is due to
+-                        // a broken transparent proxy.
+-                        if (urlConnection.getContentLength() == 0) {
+-                            return ProbeResult.VALIDATED_WITH_OK_BUT_ZERO_CONTENT_LENGTH;
+-                        } else if (urlConnection.getContentLength() == -1) {
+-                            // When no Content-length (default value == -1), attempt to read a byte
+-                            // from the response.
+-                            if (urlConnection.getInputStream().read() == -1) {
+-                                return ProbeResult.VALIDATED_WITH_OK_BUT_NO_CONTENT_LENGTH;
+-                            }
+-                        }
+-                    }
+-                } catch (IOException e) {
+-                    Log.i(TAG, "Probe " + urlString + " failed w/ exception " + e);
+-                    // Most likely the exception is thrown due to host name not resolved or socket
+-                    // timeout.
+-                    return ProbeResult.NO_INTERNET;
+-                } finally {
+-                    if (urlConnection != null) {
+-                        urlConnection.disconnect();
+-                    }
+-                }
+                 // The result returned from a well-known URL doesn't match the expected result,
+                 // probably due to that the traffic is intercepted by the captive portal.
+                 return ProbeResult.NOT_VALIDATED;
+diff --git a/chrome/android/java/src/org/chromium/chrome/browser/omaha/OmahaBase.java b/chrome/android/java/src/org/chromium/chrome/browser/omaha/OmahaBase.java
+--- a/chrome/android/java/src/org/chromium/chrome/browser/omaha/OmahaBase.java
++++ b/chrome/android/java/src/org/chromium/chrome/browser/omaha/OmahaBase.java
+@@ -457,8 +457,7 @@ public class OmahaBase {
+                 }""");
+         try {
+             URL url = new URL(getRequestGenerator().getServerUrl());
+-            HttpURLConnection connection =
+-                    (HttpURLConnection) ChromiumNetworkAdapter.openConnection(url, annotation);
++            HttpURLConnection connection = null;
+             connection.setConnectTimeout(MS_CONNECTION_TIMEOUT);
+             connection.setReadTimeout(MS_CONNECTION_TIMEOUT);
+             return connection;
+diff --git a/components/minidump_uploader/android/java/src/org/chromium/components/minidump_uploader/util/HttpURLConnectionFactoryImpl.java b/components/minidump_uploader/android/java/src/org/chromium/components/minidump_uploader/util/HttpURLConnectionFactoryImpl.java
+--- a/components/minidump_uploader/android/java/src/org/chromium/components/minidump_uploader/util/HttpURLConnectionFactoryImpl.java
++++ b/components/minidump_uploader/android/java/src/org/chromium/components/minidump_uploader/util/HttpURLConnectionFactoryImpl.java
+@@ -37,11 +37,6 @@ public class HttpURLConnectionFactoryImpl implements HttpURLConnectionFactory {
+ 
+     @Override
+     public HttpURLConnection createHttpURLConnection(String url) {
+-        try {
+-            return (HttpURLConnection)
+-                    ChromiumNetworkAdapter.openConnection(new URL(url), TRAFFIC_ANNOTATION);
+-        } catch (IOException e) {
+-            return null;
+-        }
++        return null;
+     }
+ }
+diff --git a/components/variations/android/java/src/org/chromium/components/variations/firstrun/VariationsSeedFetcher.java b/components/variations/android/java/src/org/chromium/components/variations/firstrun/VariationsSeedFetcher.java
+--- a/components/variations/android/java/src/org/chromium/components/variations/firstrun/VariationsSeedFetcher.java
++++ b/components/variations/android/java/src/org/chromium/components/variations/firstrun/VariationsSeedFetcher.java
+@@ -190,14 +190,6 @@ public class VariationsSeedFetcher {
+         ResettersForTesting.register(() -> sInstance = oldValue);
+     }
+ 
+-    @VisibleForTesting
+-    protected HttpURLConnection getServerConnection(SeedFetchParameters params)
+-            throws MalformedURLException, IOException {
+-        String urlString = getConnectionString(params);
+-        URL url = new URL(urlString);
+-        return (HttpURLConnection) ChromiumNetworkAdapter.openConnection(url, TRAFFIC_ANNOTATION);
+-    }
+-
+     @VisibleForTesting
+     protected List<String> getAvailableInstanceManipulations() {
+         List<String> compressions = new ArrayList<String>();
+@@ -530,24 +522,8 @@ public class VariationsSeedFetcher {
+         HttpURLConnection connection = null;
+         try {
+             long startTimeMillis = SystemClock.elapsedRealtime();
+-            connection = getServerConnection(params);
+-            connection.setReadTimeout(READ_TIMEOUT);
+-            connection.setConnectTimeout(REQUEST_TIMEOUT);
+-            connection.setDoInput(true);
+-            if (currInfo != null) {
+-                VariationsSeed currentVariationsSeed = currInfo.getParsedVariationsSeed();
+-                if (currentVariationsSeed != null) {
+-                    String serialNumber = currentVariationsSeed.getSerialNumber();
+-                    if (!serialNumber.isEmpty()) {
+-                        connection.setRequestProperty("If-None-Match", serialNumber);
+-                    }
+-                }
+-            }
+             List<String> requestedInstanceManipulations = getAvailableInstanceManipulations();
+-            connection.setRequestProperty("A-IM", String.join(",", requestedInstanceManipulations));
+-            connection.connect();
+-            int responseCode = connection.getResponseCode();
+-            fetchInfo.seedFetchResult = responseCode;
++            int responseCode = 400;
+             if (responseCode == HttpURLConnection.HTTP_OK) {
+                 recordSeedConnectTime(SystemClock.elapsedRealtime() - startTimeMillis);
+ 
+diff --git a/net/android/java/src/org/chromium/net/ChromiumNetworkAdapter.java b/net/android/java/src/org/chromium/net/ChromiumNetworkAdapter.java
+--- a/net/android/java/src/org/chromium/net/ChromiumNetworkAdapter.java
++++ b/net/android/java/src/org/chromium/net/ChromiumNetworkAdapter.java
+@@ -23,10 +23,6 @@ public final class ChromiumNetworkAdapter {
+      *     data gets sent, what triggers it, etc.
+      * @return a URLConnection linking to the URL.
+      */
+-    public static URLConnection openConnection(
+-            URL url, NetworkTrafficAnnotationTag trafficAnnotation) throws IOException {
+-        return url.openConnection();
+-    }
+ 
+     /**
+      * Wrapper around URL#openConnection(Proxy), with an extra argument for static analysis/privacy
+@@ -38,11 +34,6 @@ public final class ChromiumNetworkAdapter {
+      *     data gets sent, what triggers it, etc.
+      * @return a URLConnection linking to the URL.
+      */
+-    public static URLConnection openConnection(
+-            URL url, Proxy proxy, NetworkTrafficAnnotationTag trafficAnnotation)
+-            throws IOException {
+-        return url.openConnection(proxy);
+-    }
+ 
+     /**
+      * Wrapper around URL#openStream(), with an extra argument for static analysis/privacy auditing.
+@@ -52,8 +43,4 @@ public final class ChromiumNetworkAdapter {
+      *     data gets sent, what triggers it, etc.
+      * @return an InputStream linking to the URL.
+      */
+-    public static InputStream openStream(URL url, NetworkTrafficAnnotationTag trafficAnnotation)
+-            throws IOException {
+-        return url.openStream();
+-    }
+ }
+--

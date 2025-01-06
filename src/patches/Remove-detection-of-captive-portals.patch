@@ -1,0 +1,58 @@
+From: uazo <uazo@users.noreply.github.com>
+Date: Mon, 17 Apr 2023 12:43:19 +0000
+Subject: Remove detection of captive portals
+
+License: GPL-2.0-or-later - https://spdx.org/licenses/GPL-2.0-or-later.html
+---
+ .../browser/net/profile_network_context_service.cc |  2 +-
+ .../ssl/chrome_security_blocking_page_factory.cc   | 14 --------------
+ components/captive_portal/core/features.gni        |  2 +-
+ 3 files changed, 2 insertions(+), 16 deletions(-)
+
+diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
+--- a/chrome/browser/net/profile_network_context_service.cc
++++ b/chrome/browser/net/profile_network_context_service.cc
+@@ -475,7 +475,7 @@ void ProfileNetworkContextService::ConfigureNetworkContextParams(
+ void ProfileNetworkContextService::RegisterProfilePrefs(
+     user_prefs::PrefRegistrySyncable* registry) {
+   registry->RegisterBooleanPref(embedder_support::kAlternateErrorPagesEnabled,
+-                                true);
++                                false);
+   registry->RegisterBooleanPref(prefs::kQuicAllowed, true);
+   registry->RegisterBooleanPref(prefs::kGloballyScopeHTTPAuthCacheEnabled,
+                                 false);
+diff --git a/chrome/browser/ssl/chrome_security_blocking_page_factory.cc b/chrome/browser/ssl/chrome_security_blocking_page_factory.cc
+--- a/chrome/browser/ssl/chrome_security_blocking_page_factory.cc
++++ b/chrome/browser/ssl/chrome_security_blocking_page_factory.cc
+@@ -82,20 +82,6 @@ EnterpriseManaged g_is_enterprise_managed_for_testing =
+ // CaptivePortalBlockingPage to be invoked when the user has pressed the
+ // connect button.
+ void OpenLoginPage(content::WebContents* web_contents) {
+-#if !BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+-  // OpenLoginTabForWebContents() is not available on Android (the only
+-  // platform on which captive portal detection is not enabled). Simply open
+-  // the platform's portal detection URL in a new tab.
+-  const std::string url = security_interstitials::GetCaptivePortalServerUrl(
+-      base::android::AttachCurrentThread());
+-  content::OpenURLParams params(GURL(url), content::Referrer(),
+-                                WindowOpenDisposition::NEW_FOREGROUND_TAB,
+-                                ui::PAGE_TRANSITION_LINK, false);
+-  web_contents->OpenURL(params, /*navigation_handle_callback=*/{});
+-#else
+-  ChromeSecurityBlockingPageFactory::OpenLoginTabForWebContents(web_contents,
+-                                                                true);
+-#endif  // !BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+ }
+ 
+ std::unique_ptr<ContentMetricsHelper> CreateMetricsHelperAndStartRecording(
+diff --git a/components/captive_portal/core/features.gni b/components/captive_portal/core/features.gni
+--- a/components/captive_portal/core/features.gni
++++ b/components/captive_portal/core/features.gni
+@@ -6,5 +6,5 @@ import("//build/config/compiler/compiler.gni")
+ 
+ # Please keep features in alphabetical order.
+ declare_args() {
+-  enable_captive_portal_detection = !is_android && !is_ios && !is_castos
++  enable_captive_portal_detection = false
+ }
+--
